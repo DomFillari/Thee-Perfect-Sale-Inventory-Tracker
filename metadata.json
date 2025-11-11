@@ -1,0 +1,7 @@
+{
+  "name": "Warehouse Item Tagger",
+  "description": "Capture an image of a warehouse item, add a description, and automatically generate a SKU, barcode, and AI-powered categorization tags.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
