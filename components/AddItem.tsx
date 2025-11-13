@@ -33,7 +33,7 @@ const emptyItem: Omit<Item, 'id' | 'sku' | 'airtableId'> = {
   flagged: false,
 };
 
-const resizeImage = (file: File, maxWidth = 800, maxHeight = 800, quality = 0.8): Promise<string> => {
+const resizeImage = (file: File, maxWidth = 400, maxHeight = 400, quality = 0.7): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
@@ -142,7 +142,8 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
     setIsTagging(true);
     setTagError('');
     try {
-      const imageToAnalyze = await dataUrlToFile(imagePreviews[0], 'tag-generation-image.jpg');
+      // FIX: Explicitly type `imageToAnalyze` to ensure it's treated as a `File`.
+      const imageToAnalyze: File = await dataUrlToFile(imagePreviews[0], 'tag-generation-image.jpg');
       const tags = await generateTags(imageToAnalyze, name, maker || '', category || '', description);
       setItem(prev => ({ ...prev, tags: [...(prev.tags || []), ...tags].filter((v, i, a) => a.indexOf(v) === i) })); // Add and deduplicate
     } catch (err) {
