@@ -1,3 +1,8 @@
+
+export interface UserSession {
+  username: string;
+}
+
 export interface Item {
   id: string; // App-specific UUID
   airtableId?: string; // Airtable Record ID
@@ -30,8 +35,4 @@ export enum Status {
   PROCESSING,
   SUCCESS,
   ERROR,
-}
-
-export interface UserSession {
-  username: string;
 }

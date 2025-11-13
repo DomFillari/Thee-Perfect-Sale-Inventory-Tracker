@@ -31,6 +31,22 @@ const mapAirtableRecordToItem = (record: any): Item => {
       console.error("Failed to parse ImageData field from Airtable:", e);
   }
 
+  let tags: string[] = [];
+    try {
+        if (fields.Tags) {
+            const parsedTags = JSON.parse(fields.Tags);
+            if (Array.isArray(parsedTags)) {
+                tags = parsedTags;
+            }
+        }
+    } catch (e) {
+        console.error("Failed to parse Tags field as JSON. Attempting comma-separated fallback.", e);
+        // Fallback for manually entered, comma-separated tags that are not valid JSON
+        if (typeof fields.Tags === 'string') {
+            tags = fields.Tags.split(',').map(t => t.trim()).filter(Boolean);
+        }
+    }
+
   return {
     airtableId: record.id,
     id: fields.AppId, // The app's internal UUID
@@ -39,7 +55,7 @@ const mapAirtableRecordToItem = (record: any): Item => {
     description: fields.Description || '',
     price: fields.Price ?? null,
     category: fields.Category || 'Other',
-    tags: fields.Tags ? JSON.parse(fields.Tags) : [],
+    tags: tags,
     images: images,
     consigned: fields.Consigned || false,
     consignee: fields.Consignee || '',
@@ -55,7 +71,7 @@ const mapAirtableRecordToItem = (record: any): Item => {
 
 // Maps our application's Item interface to an Airtable-compatible fields object.
 // NOTE: Field names sent to Airtable must be case-sensitive and match the table schema.
-const mapItemToAirtableFields = (item: Item, user: string) => {
+const mapItemToAirtableFields = (item: Item) => {
   // Exclude airtableId from the fields sent to Airtable
   const { airtableId, ...itemData } = item;
   return {
@@ -77,7 +93,6 @@ const mapItemToAirtableFields = (item: Item, user: string) => {
     'Listed': itemData.listed,
     'Flagged': itemData.flagged,
     'SKU': itemData.sku,
-    'User': user, // Add the user field for filtering
   };
 };
 
@@ -96,10 +111,8 @@ const handleAirtableError = async (response: Response) => {
     }
 }
 
-export const getInventory = async (user: string): Promise<Item[]> => {
-  // Use the correct case for the 'User' field in the filter formula
-  const filterFormula = `filterByFormula=${encodeURIComponent(`{User} = "${user}"`)}`;
-  const response = await fetch(`${AIRTABLE_API_URL}?${filterFormula}`, {
+export const getInventory = async (): Promise<Item[]> => {
+  const response = await fetch(AIRTABLE_API_URL, {
     method: 'GET',
     headers: HEADERS,
   });
@@ -108,12 +121,12 @@ export const getInventory = async (user: string): Promise<Item[]> => {
   return data.records.map(mapAirtableRecordToItem);
 };
 
-export const addItem = async (item: Item, user: string): Promise<Item> => {
+export const addItem = async (item: Item): Promise<Item> => {
   const payload = {
     records: [{
-      fields: mapItemToAirtableFields(item, user),
+      fields: mapItemToAirtableFields(item),
     }],
-    typecast: false, // Set to false to prevent Airtable from misinterpreting data types
+    typecast: true, // Set to true to allow Airtable to flexibly interpret data types
   };
   const response = await fetch(AIRTABLE_API_URL, {
     method: 'POST',
@@ -125,16 +138,16 @@ export const addItem = async (item: Item, user: string): Promise<Item> => {
   return mapAirtableRecordToItem(data.records[0]);
 };
 
-export const updateItem = async (item: Item, user: string): Promise<Item> => {
+export const updateItem = async (item: Item): Promise<Item> => {
   if (!item.airtableId) {
     throw new Error("Cannot update item without an Airtable Record ID.");
   }
   const payload = {
     records: [{
       id: item.airtableId,
-      fields: mapItemToAirtableFields(item, user),
+      fields: mapItemToAirtableFields(item),
     }],
-    typecast: false, // Set to false to prevent Airtable from misinterpreting data types
+    typecast: true, // Set to true to allow Airtable to flexibly interpret data types
   };
   const response = await fetch(AIRTABLE_API_URL, {
     method: 'PATCH',
@@ -146,7 +159,7 @@ export const updateItem = async (item: Item, user: string): Promise<Item> => {
   return mapAirtableRecordToItem(data.records[0]);
 };
 
-export const deleteItem = async (airtableId: string, user: string): Promise<void> => {
+export const deleteItem = async (airtableId: string): Promise<void> => {
   const response = await fetch(`${AIRTABLE_API_URL}?records[]=${airtableId}`, {
     method: 'DELETE',
     headers: HEADERS,
