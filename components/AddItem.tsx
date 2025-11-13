@@ -33,7 +33,7 @@ const emptyItem: Omit<Item, 'id' | 'sku' | 'airtableId'> = {
   flagged: false,
 };
 
-const resizeImage = (file: File, maxWidth = 400, maxHeight = 400, quality = 0.7): Promise<string> => {
+const resizeImage = (file: File, maxWidth = 300, maxHeight = 300, quality = 0.7): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
@@ -86,219 +86,329 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
   const [newTag, setNewTag] = useState('');
   
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const isEditing = !!itemToEdit;
 
   useEffect(() => {
     if (itemToEdit) {
       setItem(itemToEdit);
-      setImagePreviews(itemToEdit.images);
+      setImagePreviews(itemToEdit.images || []);
     } else {
       setItem(emptyItem);
       setImagePreviews([]);
     }
   }, [itemToEdit]);
-  
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value, type } = e.target;
-    const isCheckbox = type === 'checkbox' && e.target instanceof HTMLInputElement;
-    setItem(prev => ({ ...prev, [name]: isCheckbox ? e.target.checked : value }));
-  };
 
-  const handlePriceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      const value = e.target.value;
-      const parsedValue = parseFloat(value);
-      setItem(prev => ({...prev, price: isNaN(parsedValue) ? null : parsedValue }));
-  }
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setItem(prev => ({ ...prev, [name]: name === 'price' ? (value === '' ? null : parseFloat(value)) : value }));
+  };
+  
+  const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, checked } = e.target;
+    setItem(prev => ({ ...prev, [name]: checked }));
+  };
 
   const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (e.target.files) {
-          const files = Array.from(e.target.files);
-          try {
-            const resizedImageUrls = await Promise.all(files.map(file => resizeImage(file)));
-            setImagePreviews(prev => [...prev, ...resizedImageUrls]);
-          } catch(err) {
-            console.error("Failed to process images:", err);
-          }
+    if (e.target.files) {
+      // Fix: Explicitly type `files` as `File[]` to resolve type inference issue.
+      const files: File[] = Array.from(e.target.files);
+      const newPreviews: string[] = [];
+      for (const file of files) {
+        try {
+          const resizedDataUrl = await resizeImage(file);
+          newPreviews.push(resizedDataUrl);
+        } catch (error) {
+          console.error("Error resizing image:", error);
+        }
       }
-  };
-
-  const removeImage = (index: number) => {
-      setImagePreviews(prev => prev.filter((_, i) => i !== index));
-  };
-  
-  const handleGenerateTags = async () => {
-    if (!imagePreviews[0]) {
-      setTagError("Please add an image first to suggest tags.");
-      return;
-    }
-    
-    const { name, description, maker, category } = item;
-    
-    if (!name || !description) {
-      setTagError("Please enter a name and description for better suggestions.");
-      return;
-    }
-    
-    setIsTagging(true);
-    setTagError('');
-    try {
-      // FIX: Explicitly type `imageToAnalyze` to ensure it's treated as a `File`.
-      const imageToAnalyze: File = await dataUrlToFile(imagePreviews[0], 'tag-generation-image.jpg');
-      const tags = await generateTags(imageToAnalyze, name, maker || '', category || '', description);
-      setItem(prev => ({ ...prev, tags: [...(prev.tags || []), ...tags].filter((v, i, a) => a.indexOf(v) === i) })); // Add and deduplicate
-    } catch (err) {
-      if (err instanceof Error) {
-        setTagError(err.message);
-      } else {
-        setTagError("Failed to generate tags due to an unknown error.");
-      }
-    } finally {
-      setIsTagging(false);
+      const combinedPreviews = [...imagePreviews, ...newPreviews].slice(0, 5);
+      setImagePreviews(combinedPreviews);
+      setItem(prev => ({ ...prev, images: combinedPreviews }));
     }
   };
   
-  const handleAddTag = () => {
-      const trimmedTag = newTag.trim();
-      if(trimmedTag && !item.tags?.includes(trimmedTag)) {
-          setItem(prev => ({...prev, tags: [...(prev.tags || []), trimmedTag]}));
-          setNewTag('');
+  const triggerFileInput = () => {
+    fileInputRef.current?.click();
+  };
+  
+  const handleRemoveImage = (index: number) => {
+    const updatedPreviews = imagePreviews.filter((_, i) => i !== index);
+    setImagePreviews(updatedPreviews);
+    setItem(prev => ({ ...prev, images: updatedPreviews }));
+  };
+  
+  const handleTagInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setNewTag(e.target.value);
+  };
+  
+  const handleAddTag = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && newTag.trim() !== '') {
+      e.preventDefault();
+      const currentTags = item.tags || [];
+      if (!currentTags.includes(newTag.trim())) {
+        setItem(prev => ({ ...prev, tags: [...currentTags, newTag.trim()] }));
       }
+      setNewTag('');
+    }
   };
   
   const handleRemoveTag = (tagToRemove: string) => {
-      setItem(prev => ({...prev, tags: (prev.tags || []).filter(t => t !== tagToRemove)}));
+    setItem(prev => ({ ...prev, tags: (prev.tags || []).filter(tag => tag !== tagToRemove) }));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!item.name) {
-      alert("Item Name is required.");
+  const handleGenerateTags = useCallback(async () => {
+    if (!imagePreviews.length) {
+      setTagError("Please add an image first to generate tags.");
       return;
     }
-    
-    if (isEditing) {
-      const updatedItem: Item = { ...itemToEdit!, ...item, images: imagePreviews };
-      onItemUpdated(updatedItem);
+    setIsTagging(true);
+    setTagError('');
+    try {
+      const { name = '', maker = '', category = '', description = '' } = item;
+      const imageToAnalyze: File = await dataUrlToFile(imagePreviews[0], 'item-image.jpg');
+      
+      const newTags = await generateTags(imageToAnalyze, name, maker, category, description);
+      const currentTags = item.tags || [];
+      const mergedTags = Array.from(new Set([...currentTags, ...newTags]));
+      setItem(prev => ({ ...prev, tags: mergedTags }));
+    } catch (err: any) {
+      setTagError(err.message || 'Failed to generate tags.');
+    } finally {
+      setIsTagging(false);
+    }
+  }, [item, imagePreviews]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const finalItem: Item = {
+      ...emptyItem,
+      ...item,
+      id: item.id || crypto.randomUUID(),
+      sku: item.sku || `WHS-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
+      images: imagePreviews,
+    };
+
+    if (itemToEdit) {
+      onItemUpdated(finalItem);
     } else {
-      const newItem: Item = {
-        ...emptyItem,
-        ...item,
-        id: crypto.randomUUID(),
-        sku: `WHS-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
-        images: imagePreviews,
-      };
-      onItemSaved(newItem);
+      onItemSaved(finalItem);
     }
   };
-
-  const formInputClass = "block w-full rounded-lg border-slate-300 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/50 dark:bg-slate-700 dark:border-slate-600 dark:placeholder-slate-400 dark:text-white sm:text-sm transition";
-  const formLabelClass = "block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5";
-  const formCheckboxClass = "h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:focus:ring-blue-600 dark:ring-offset-slate-800";
-
+  
+  const canSubmit = item.name && imagePreviews.length > 0;
+  
+  const inputStyle = "block w-full rounded-lg border-slate-300 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/50 dark:bg-slate-700 dark:border-slate-600 dark:placeholder-slate-400 dark:text-white sm:text-sm transition";
+  const checkboxStyle = "h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-600 dark:bg-slate-700 dark:border-slate-600 dark:checked:bg-blue-500";
+  
   return (
-    <div className="w-full max-w-3xl mx-auto">
-        <form onSubmit={handleSubmit} className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl p-6 sm:p-8 space-y-8">
-            <div className="text-center">
-              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-white">{isEditing ? 'Edit Item' : 'Add New Item'}</h1>
-              {!isEditing && <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">Fill out the details to create a new inventory item.</p>}
-            </div>
-            
-             {/* Images */}
-            <div>
-                <label className={formLabelClass}>Images</label>
-                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
-                    {imagePreviews.map((src, index) => (
-                        <div key={index} className="relative group aspect-square">
-                            <img src={src} alt={`Preview ${index}`} className="w-full h-full object-cover rounded-lg" />
-                            <button type="button" onClick={() => removeImage(index)} className="absolute top-1 right-1 p-1 bg-black/60 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity focus:opacity-100">
-                                <TrashIcon className="w-4 h-4" />
-                            </button>
-                        </div>
-                    ))}
-                    <button
-                        type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        className="flex flex-col justify-center items-center aspect-square border-2 border-slate-300 dark:border-slate-600 border-dashed rounded-lg cursor-pointer hover:border-blue-500 dark:hover:border-blue-400 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
-                    >
-                        <CameraIcon className="h-8 w-8 text-slate-400" />
-                        <span className="mt-1 text-xs font-semibold text-slate-500">Add</span>
-                    </button>
-                </div>
-                <input ref={fileInputRef} type="file" accept="image/*" multiple className="sr-only" onChange={handleImageChange} />
-            </div>
+    <div className="w-full max-w-4xl mx-auto">
+      <form onSubmit={handleSubmit} className="bg-white dark:bg-slate-800 p-6 sm:p-8 rounded-2xl shadow-xl space-y-8">
+        
+        <div className="flex justify-between items-center">
+          <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white">
+            {itemToEdit ? 'Edit Item' : 'Add New Item'}
+          </h2>
+          <button type="button" onClick={onCancel} aria-label="Close form" className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700">
+            <CloseIcon className="w-6 h-6 text-slate-500" />
+          </button>
+        </div>
 
-            {/* Main Details Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-6">
-                <div><label htmlFor="name" className={formLabelClass}>Item Name *</label><input type="text" name="name" id="name" value={item.name || ''} onChange={handleInputChange} className={formInputClass} required /></div>
-                <div><label htmlFor="maker" className={formLabelClass}>Maker / Brand</label><input type="text" name="maker" id="maker" value={item.maker || ''} onChange={handleInputChange} className={formInputClass} /></div>
-                <div className="md:col-span-2"><label htmlFor="description" className={formLabelClass}>Description</label><textarea name="description" id="description" rows={3} value={item.description || ''} onChange={handleInputChange} className={formInputClass}></textarea></div>
-                <div><label htmlFor="price" className={formLabelClass}>Price</label><div className="relative"><div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3"><span className="text-slate-500 sm:text-sm">$</span></div><input type="number" name="price" id="price" value={item.price ?? ''} onChange={handlePriceChange} className={`${formInputClass} pl-7`} placeholder="0.00" step="0.01"/></div></div>
-                <div><label htmlFor="size" className={formLabelClass}>Size</label><input type="text" name="size" id="size" value={item.size || ''} onChange={handleInputChange} className={formInputClass} placeholder="e.g., Large, 12x12, etc." /></div>
-                <div><label htmlFor="category" className={formLabelClass}>Category</label><select name="category" id="category" value={item.category} onChange={handleInputChange} className={formInputClass}>{CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
-                <div><label htmlFor="condition" className={formLabelClass}>Condition</label><select name="condition" id="condition" value={item.condition} onChange={handleInputChange} className={formInputClass}>{CONDITIONS.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
-                <div className="md:col-span-2"><label htmlFor="flaws" className={formLabelClass}>Flaws</label><textarea name="flaws" id="flaws" rows={2} value={item.flaws || ''} onChange={handleInputChange} className={formInputClass} placeholder="e.g., small scratch on corner"></textarea></div>
+        {error && (
+            <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md" role="alert">
+                <p className="font-bold">Error saving item</p>
+                <p>{error}</p>
             </div>
+        )}
 
-            {/* Tags */}
-            <div>
-                 <label className={formLabelClass}>Tags</label>
-                 <div className="flex gap-4 items-start">
-                    <div className="flex-grow flex flex-wrap gap-2 items-center p-2 border border-slate-300 dark:border-slate-600 rounded-lg min-h-[46px] focus-within:ring-2 focus-within:ring-blue-500/50 focus-within:border-blue-500">
-                        {(item.tags || []).map(tag => (
-                            <span key={tag} className="flex items-center bg-blue-100 text-blue-800 text-sm font-semibold pl-3 pr-1.5 py-1 rounded-full dark:bg-blue-900 dark:text-blue-200">
-                            {tag}
-                            <button type="button" onClick={() => handleRemoveTag(tag)} className="ml-1.5 p-0.5 hover:bg-blue-200 dark:hover:bg-blue-700 rounded-full"><CloseIcon className="w-3.5 h-3.5"/></button>
-                            </span>
-                        ))}
-                        <input type="text" value={newTag} onChange={e => setNewTag(e.target.value)} onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAddTag())} placeholder={ (item.tags && item.tags.length > 0) ? "Add another..." : "Add a tag..."} className="flex-grow bg-transparent focus:outline-none text-sm p-1 min-w-[100px]" />
-                    </div>
-                    <button type="button" onClick={handleGenerateTags} disabled={isTagging} className="flex items-center gap-2 px-4 py-2.5 bg-slate-200 dark:bg-slate-700 text-sm font-semibold rounded-lg hover:bg-slate-300 dark:hover:bg-slate-600 disabled:opacity-50 transition-colors">
-                        {isTagging ? <SpinnerIcon className="w-5 h-5"/> : <TagIcon className="w-5 h-5"/>}
-                        Suggest
-                    </button>
-                 </div>
-                 {tagError && <p className="text-xs text-red-500 mt-1.5">{tagError}</p>}
-            </div>
-            
-            {/* Checkboxes */}
-            <div className="space-y-5 pt-2">
-                <div className="relative flex items-start"><div className="flex h-6 items-center"><input id="consigned" name="consigned" type="checkbox" checked={item.consigned || false} onChange={handleInputChange} className={formCheckboxClass} /></div><div className="ml-3 text-sm leading-6"><label htmlFor="consigned" className="font-medium text-slate-900 dark:text-slate-100">Consignment Item</label></div></div>
-                {item.consigned && (<div><label htmlFor="consignee" className={formLabelClass}>Customer / Consignee Name</label><input type="text" name="consignee" id="consignee" value={item.consignee || ''} onChange={handleInputChange} className={formInputClass} /></div>)}
-                <div className="relative flex items-start"><div className="flex h-6 items-center"><input id="shippable" name="shippable" type="checkbox" checked={item.shippable || false} onChange={handleInputChange} className={formCheckboxClass} /></div><div className="ml-3 text-sm leading-6"><label htmlFor="shippable" className="font-medium text-slate-900 dark:text-slate-100">Shippable</label></div></div>
-                <div className="relative flex items-start"><div className="flex h-6 items-center"><input id="listed" name="listed" type="checkbox" checked={item.listed || false} onChange={handleInputChange} className={formCheckboxClass} /></div><div className="ml-3 text-sm leading-6"><label htmlFor="listed" className="font-medium text-slate-900 dark:text-slate-100">Listed for Sale</label></div></div>
-                <div className="relative flex items-start"><div className="flex h-6 items-center"><input id="flagged" name="flagged" type="checkbox" checked={item.flagged || false} onChange={handleInputChange} className={formCheckboxClass} /></div><div className="ml-3 text-sm leading-6"><label htmlFor="flagged" className="font-medium text-slate-900 dark:text-slate-100">Flag Item</label><p className="text-slate-500 text-xs">Flag this item for review or special attention.</p></div></div>
-            </div>
-
-            {/* Error Display */}
-            {error && (
-                <div className="bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-200 p-4 rounded-lg text-sm flex gap-3">
-                    <InfoIcon className="w-5 h-5 flex-shrink-0 mt-0.5 text-red-500" />
-                    <div>
-                        <p className="font-bold">Save Failed</p>
-                        <p>{error}</p>
-                    </div>
-                </div>
-            )}
-
-            {/* Actions */}
-            <div className="flex items-center justify-end gap-4 pt-6 border-t border-slate-200 dark:border-slate-700">
-                <button type="button" onClick={onCancel} className="px-6 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Cancel</button>
-                <button 
-                  type="submit" 
-                  disabled={isSaving} 
-                  className="inline-flex justify-center items-center px-6 py-2.5 text-sm font-semibold text-white bg-blue-600 rounded-lg shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-slate-400 dark:disabled:bg-slate-600 disabled:cursor-wait transition"
+        {/* Image Uploader */}
+        <div className="space-y-4">
+          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Images (up to 5, first is primary)</label>
+          <div className="grid grid-cols-3 sm:grid-cols-5 gap-4">
+            {imagePreviews.map((src, index) => (
+              <div key={index} className="relative group aspect-square">
+                <img src={src} alt={`Preview ${index + 1}`} className="w-full h-full object-cover rounded-lg shadow-md" />
+                <button
+                  type="button"
+                  onClick={() => handleRemoveImage(index)}
+                  className="absolute -top-2 -right-2 bg-red-600 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                  aria-label={`Remove image ${index + 1}`}
                 >
-                    {isSaving ? (
-                        <>
-                            <SpinnerIcon className="w-5 h-5 mr-2 -ml-1" />
-                            {isEditing ? 'Updating...' : 'Saving...'}
-                        </>
-                    ) : (
-                        isEditing ? 'Update Item' : 'Save Item'
-                    )}
+                  <TrashIcon className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+            {imagePreviews.length < 5 && (
+              <button
+                type="button"
+                onClick={triggerFileInput}
+                className="flex flex-col items-center justify-center aspect-square w-full border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg text-slate-500 dark:text-slate-400 hover:border-blue-500 hover:text-blue-600 dark:hover:text-blue-500 transition-colors"
+              >
+                <CameraIcon className="w-8 h-8" />
+                <span className="text-xs mt-1">Add Image</span>
+              </button>
+            )}
+          </div>
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleImageChange}
+            multiple
+            accept="image/*"
+            className="hidden"
+            capture="environment"
+          />
+        </div>
+
+        {/* Main Details Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-6">
+            <div>
+                <label htmlFor="name" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Item Name*</label>
+                <input type="text" name="name" id="name" value={item.name || ''} onChange={handleChange} required className={`mt-1 ${inputStyle}`} />
+            </div>
+
+            <div>
+                <label htmlFor="maker" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Maker / Brand</label>
+                <input type="text" name="maker" id="maker" value={item.maker || ''} onChange={handleChange} className={`mt-1 ${inputStyle}`} />
+            </div>
+
+            <div className="md:col-span-2">
+                <label htmlFor="description" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Description</label>
+                <textarea name="description" id="description" rows={3} value={item.description || ''} onChange={handleChange} className={`mt-1 ${inputStyle}`}></textarea>
+            </div>
+
+            <div>
+                <label htmlFor="price" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Price ($)</label>
+                <div className="relative mt-1">
+                    <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                        <span className="text-slate-500 sm:text-sm">$</span>
+                    </div>
+                    <input type="number" name="price" id="price" value={item.price ?? ''} onChange={handleChange} className={`pl-7 ${inputStyle}`} placeholder="0.00" step="0.01" />
+                </div>
+            </div>
+
+            <div>
+                <label htmlFor="category" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Category</label>
+                <select id="category" name="category" value={item.category} onChange={handleChange} className={`mt-1 ${inputStyle}`}>
+                    {CATEGORIES.map(cat => <option key={cat}>{cat}</option>)}
+                </select>
+            </div>
+        </div>
+
+        {/* Tags Section */}
+        <div className="space-y-4">
+            <div className="flex items-end justify-between">
+                <div>
+                    <label htmlFor="tags" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Tags</label>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Press Enter to add a tag.</p>
+                </div>
+                <button
+                    type="button"
+                    onClick={handleGenerateTags}
+                    disabled={isTagging || !imagePreviews.length}
+                    className="flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-blue-100 text-blue-800 hover:bg-blue-200 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900 transition"
+                >
+                    {isTagging ? <SpinnerIcon className="w-5 h-5" /> : <TagIcon className="w-5 h-5" />}
+                    {isTagging ? 'Generating...' : 'Generate with AI'}
                 </button>
             </div>
-        </form>
+            {tagError && <p className="text-sm text-red-600 flex items-center gap-2"><InfoIcon className="w-4 h-4" /> {tagError}</p>}
+            <div className="flex flex-wrap gap-2 p-2 border border-slate-300 dark:border-slate-600 rounded-lg min-h-[42px]">
+                {(item.tags || []).map(tag => (
+                    <span key={tag} className="flex items-center gap-1.5 bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-slate-200 text-sm font-medium px-2 py-1 rounded-md">
+                        {tag}
+                        <button type="button" onClick={() => handleRemoveTag(tag)} className="text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200">
+                            <CloseIcon className="w-3 h-3" />
+                        </button>
+                    </span>
+                ))}
+                <input
+                    type="text"
+                    id="tags"
+                    value={newTag}
+                    onChange={handleTagInputChange}
+                    onKeyDown={handleAddTag}
+                    className="flex-grow bg-transparent focus:outline-none dark:text-white p-1"
+                    placeholder={(item.tags || []).length === 0 ? 'Add tags...' : ''}
+                />
+            </div>
+        </div>
+        
+        {/* Additional Details Section */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-6">
+            <div>
+                <label htmlFor="condition" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Condition</label>
+                <select id="condition" name="condition" value={item.condition} onChange={handleChange} className={`mt-1 ${inputStyle}`}>
+                    {CONDITIONS.map(cond => <option key={cond}>{cond}</option>)}
+                </select>
+            </div>
+             <div>
+                <label htmlFor="size" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Size / Dimensions</label>
+                <input type="text" name="size" id="size" value={item.size || ''} onChange={handleChange} className={`mt-1 ${inputStyle}`} />
+            </div>
+             <div className="md:col-span-2">
+                <label htmlFor="flaws" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Known Flaws</label>
+                <input type="text" name="flaws" id="flaws" value={item.flaws || ''} onChange={handleChange} className={`mt-1 ${inputStyle}`} placeholder="e.g., small scratch on corner" />
+            </div>
+        </div>
+
+        {/* Checkboxes */}
+        <div className="space-y-4">
+            <div className="relative flex items-start">
+                <div className="flex h-6 items-center">
+                    <input id="consigned" name="consigned" type="checkbox" checked={item.consigned || false} onChange={handleCheckboxChange} className={checkboxStyle} />
+                </div>
+                <div className="ml-3 text-sm leading-6">
+                    <label htmlFor="consigned" className="font-medium text-slate-900 dark:text-white">Consignment Item</label>
+                    <p className="text-slate-500 dark:text-slate-400">Is this item being sold on behalf of someone else?</p>
+                </div>
+            </div>
+             {item.consigned && (
+                 <div className="pl-9">
+                    <label htmlFor="consignee" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Consignee Name</label>
+                    <input type="text" name="consignee" id="consignee" value={item.consignee || ''} onChange={handleChange} className={`mt-1 ${inputStyle}`} />
+                </div>
+            )}
+             <div className="relative flex items-start">
+                <div className="flex h-6 items-center">
+                    <input id="shippable" name="shippable" type="checkbox" checked={item.shippable || false} onChange={handleCheckboxChange} className={checkboxStyle} />
+                </div>
+                <div className="ml-3 text-sm leading-6">
+                    <label htmlFor="shippable" className="font-medium text-slate-900 dark:text-white">Shippable</label>
+                    <p className="text-slate-500 dark:text-slate-400">Is this item eligible for shipping?</p>
+                </div>
+            </div>
+            <div className="relative flex items-start">
+                <div className="flex h-6 items-center">
+                    <input id="listed" name="listed" type="checkbox" checked={item.listed || false} onChange={handleCheckboxChange} className={checkboxStyle} />
+                </div>
+                <div className="ml-3 text-sm leading-6">
+                    <label htmlFor="listed" className="font-medium text-slate-900 dark:text-white">Listed Online</label>
+                    <p className="text-slate-500 dark:text-slate-400">Has this item been listed on a marketplace?</p>
+                </div>
+            </div>
+            <div className="relative flex items-start">
+                <div className="flex h-6 items-center">
+                    <input id="flagged" name="flagged" type="checkbox" checked={item.flagged || false} onChange={handleCheckboxChange} className={checkboxStyle} />
+                </div>
+                <div className="ml-3 text-sm leading-6">
+                    <label htmlFor="flagged" className="font-medium text-slate-900 dark:text-white">Flag for Review</label>
+                    <p className="text-slate-500 dark:text-slate-400">Mark this item for a secondary review or special handling.</p>
+                </div>
+            </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex justify-end gap-4 pt-4 border-t border-slate-200 dark:border-slate-700">
+            <button type="button" onClick={onCancel} className="px-6 py-2.5 text-sm font-semibold rounded-lg text-slate-700 bg-slate-100 hover:bg-slate-200 dark:text-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 transition">Cancel</button>
+            <button
+              type="submit"
+              disabled={isSaving || !canSubmit}
+              className="flex items-center justify-center gap-2 px-6 py-2.5 text-sm font-semibold rounded-lg text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed dark:disabled:bg-slate-600 transition"
+            >
+              {isSaving && <SpinnerIcon className="w-5 h-5" />}
+              {isSaving ? 'Saving...' : itemToEdit ? 'Update Item' : 'Save Item'}
+            </button>
+        </div>
+      </form>
     </div>
   );
 };
