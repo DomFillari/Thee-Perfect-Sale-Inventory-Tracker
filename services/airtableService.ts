@@ -5,7 +5,12 @@ const AIRTABLE_API_KEY = 'patAyQqSRXTZAUOsx.ea2740f0324e21785a7386aab1fb53773f6e
 const AIRTABLE_BASE_ID = 'appxhBmwl8lSacqf6'; // The ID of your Airtable Base
 const AIRTABLE_TABLE_ID = 'tblx1VUPm8gclvXel'; // The ID of the table, derived from the URL provided.
 
+// Get a free API key from https://api.imgbb.com/
+const IMGBB_API_KEY = 'aa3bbea730860f8588d25ba9a2487c6f';
+
 const AIRTABLE_API_URL = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${AIRTABLE_TABLE_ID}`;
+const IMGBB_UPLOAD_URL = `https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`;
+
 
 const HEADERS = {
   'Authorization': `Bearer ${AIRTABLE_API_KEY}`,
@@ -18,8 +23,9 @@ const mapAirtableRecordToItem = (record: any): Item => {
   const fields = record.fields;
   
   const images: string[] = [];
-  if (fields.ImageData1) { 
-      images.push(fields.ImageData1);
+  // Read from the new ImageURL field
+  if (fields.ImageURL) { 
+      images.push(fields.ImageURL);
   }
 
   let tags: string[] = [];
@@ -66,7 +72,7 @@ const mapItemToAirtableFields = (item: Item) => {
   // Exclude airtableId from the fields sent to Airtable
   const { airtableId, ...itemData } = item;
   
-  const primaryImage = (itemData.images && itemData.images[0]) ? itemData.images[0] : null;
+  const imageUrl = (itemData.images && itemData.images[0]) ? itemData.images[0] : null;
 
   return {
     'AppId': itemData.id,
@@ -76,7 +82,7 @@ const mapItemToAirtableFields = (item: Item) => {
     'Price': itemData.price === null ? undefined : itemData.price, // Airtable doesn't like null for number fields
     'Category': itemData.category,
     'Tags': JSON.stringify(itemData.tags || []),
-    'ImageData1': primaryImage,
+    'ImageURL': imageUrl,
     'Consigned': itemData.consigned,
     'Consignee': itemData.consignee,
     'Shippable': itemData.shippable,
@@ -103,6 +109,26 @@ const handleAirtableError = async (response: Response) => {
         throw new Error(errorMessage);
     }
 }
+
+// Fix: The comparison `IMGBB_API_KEY === 'YOUR_IMGBB_API_KEY'` was removed because it caused a TypeScript error.
+// A valid API key is already provided as a constant, so the check for a placeholder was redundant.
+export const uploadImage = async (file: File): Promise<string> => {
+    const formData = new FormData();
+    formData.append('image', file);
+
+    const response = await fetch(IMGBB_UPLOAD_URL, {
+        method: 'POST',
+        body: formData,
+    });
+
+    const result = await response.json();
+
+    if (!response.ok || !result.success) {
+        throw new Error(result?.error?.message || 'Failed to upload image to hosting service.');
+    }
+
+    return result.data.url;
+};
 
 export const getInventory = async (): Promise<Item[]> => {
   const response = await fetch(AIRTABLE_API_URL, {

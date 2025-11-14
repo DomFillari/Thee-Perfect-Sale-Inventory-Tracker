@@ -59,7 +59,6 @@ export const generateTags = async (
       },
     });
 
-    // Fix: Add robust JSON parsing to handle potentially empty or invalid responses.
     const responseText = response.text.trim();
     let parsed: { tags?: string[] } = {};
     if (responseText) {
@@ -67,6 +66,11 @@ export const generateTags = async (
         parsed = JSON.parse(responseText);
       } catch (e) {
         console.error("Failed to parse JSON response from Gemini:", responseText, e);
+        // If parsing fails, try to extract tags from a markdown-like list
+        const fallbackTags = responseText.match(/"(.*?)"/g)?.map(t => t.replace(/"/g, '')) || [];
+        if (fallbackTags.length > 0) {
+            return fallbackTags;
+        }
         throw new Error("Received an invalid response from the AI tag generator.");
       }
     }
