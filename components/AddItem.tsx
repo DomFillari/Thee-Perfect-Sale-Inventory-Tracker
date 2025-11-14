@@ -34,10 +34,14 @@ const emptyItem: Omit<Item, 'id' | 'sku' | 'airtableId'> = {
 };
 
 // This function is critical for ensuring uploads succeed.
-// Airtable's "Long Text" field has a 100,000 character limit.
-// A base64 string from a large photo can easily exceed this.
-// These settings aggressively resize the image to ensure the data string is small enough.
-const resizeImage = (file: File, maxWidth = 500, maxHeight = 500, quality = 0.7): Promise<string> => {
+// It intelligently resizes and compresses an image to ensure its base64 representation
+// fits within Airtable's "Long Text" field limit (~100,000 characters).
+// It prioritizes quality, then dimensions, to get the best possible result under the size constraint.
+const resizeImage = (file: File): Promise<string> => {
+  const MAX_BASE64_SIZE = 98000; // Airtable's limit is ~100k, leave a 2k buffer.
+  const INITIAL_MAX_DIMENSION = 1024; // Start with a good resolution
+  const MIN_DIMENSION = 300; // The smallest we'll resize to
+
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
@@ -46,28 +50,59 @@ const resizeImage = (file: File, maxWidth = 500, maxHeight = 500, quality = 0.7)
       img.src = event.target?.result as string;
       img.onload = () => {
         const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return reject(new Error('Failed to get canvas context'));
+
         let { width, height } = img;
 
+        // Scale down to the initial max dimension
         if (width > height) {
-          if (width > maxWidth) {
-            height = Math.round(height * (maxWidth / width));
-            width = maxWidth;
+          if (width > INITIAL_MAX_DIMENSION) {
+            height *= INITIAL_MAX_DIMENSION / width;
+            width = INITIAL_MAX_DIMENSION;
           }
         } else {
-          if (height > maxHeight) {
-            width = Math.round(width * (maxHeight / height));
-            height = maxHeight;
+          if (height > INITIAL_MAX_DIMENSION) {
+            width *= INITIAL_MAX_DIMENSION / height;
+            height = INITIAL_MAX_DIMENSION;
           }
         }
-
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          return reject(new Error('Failed to get canvas context'));
+        
+        width = Math.round(width);
+        height = Math.round(height);
+        
+        let quality = 0.9;
+        
+        const attemptResize = (): string => {
+            canvas.width = width;
+            canvas.height = height;
+            ctx.drawImage(img, 0, 0, width, height);
+            return canvas.toDataURL('image/jpeg', quality);
         }
-        ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', quality));
+        
+        let dataUrl = attemptResize();
+        
+        while (dataUrl.length > MAX_BASE64_SIZE && (width > MIN_DIMENSION || quality > 0.5)) {
+            // First, try reducing quality
+            if (quality > 0.5) {
+                quality = parseFloat((quality - 0.1).toFixed(1));
+            } else {
+                // If quality is at minimum, reduce dimensions and reset quality
+                width = Math.round(width * 0.9);
+                height = Math.round(height * 0.9);
+                quality = 0.8; // Reset quality for the new, smaller size
+            }
+            dataUrl = attemptResize();
+        }
+
+        if (dataUrl.length > MAX_BASE64_SIZE) {
+            console.warn("Image could not be compressed enough. Upload might still fail.", {
+                finalSize: dataUrl.length,
+                maxSize: MAX_BASE64_SIZE
+            });
+        }
+        
+        resolve(dataUrl);
       };
       img.onerror = () => reject(new Error('Image failed to load'));
     };
