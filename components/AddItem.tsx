@@ -34,26 +34,74 @@ const emptyItem: Omit<Item, 'id' | 'sku' | 'airtableId'> = {
 };
 
 
-const fileToDataUrl = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = error => reject(error);
-    });
-};
-
-
 const dataUrlToFile = async (dataUrl: string, filename: string): Promise<File> => {
     const res = await fetch(dataUrl);
     const blob = await res.blob();
     return new File([blob], filename, { type: blob.type });
 }
 
+const compressImageForAirtable = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+            if (!event.target?.result) {
+                return reject(new Error("Failed to read file."));
+            }
+            const img = new Image();
+            img.src = event.target.result as string;
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                if (!ctx) {
+                    return reject(new Error("Could not get canvas context"));
+                }
+
+                const MAX_BASE64_SIZE = 95000; // Safe limit for Airtable text field
+                
+                // Iteration settings: Try progressively smaller sizes and lower qualities
+                const sizeSteps = [1280, 1024, 800, 600];
+                const qualitySteps = [0.9, 0.8, 0.7, 0.6];
+
+                for (const size of sizeSteps) {
+                    let { width, height } = img;
+
+                    if (width > size || height > size) {
+                        if (width > height) {
+                            height = Math.round(height * (size / width));
+                            width = size;
+                        } else {
+                            width = Math.round(width * (size / height));
+                            height = size;
+                        }
+                    }
+                    
+                    canvas.width = width;
+                    canvas.height = height;
+                    ctx.drawImage(img, 0, 0, width, height);
+                    
+                    for (const quality of qualitySteps) {
+                        const dataUrl = canvas.toDataURL('image/jpeg', quality);
+                        if (dataUrl.length < MAX_BASE64_SIZE) {
+                            console.log(`Successfully compressed to ${dataUrl.length} bytes. (Size: ${width}x${height}, Quality: ${quality})`);
+                            return resolve(dataUrl);
+                        }
+                    }
+                }
+                
+                reject(new Error("Image is too large. Please try a smaller file."));
+            };
+            img.onerror = () => reject(new Error("Could not load image file. It might be corrupted."));
+        };
+        reader.onerror = (error) => reject(error);
+    });
+};
+
 
 const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpdated, onCancel, isSaving, error }) => {
   const [item, setItem] = useState<Partial<Item>>(itemToEdit || emptyItem);
   const [isTagging, setIsTagging] = useState(false);
+  const [isCompressing, setIsCompressing] = useState(false);
   const [tagError, setTagError] = useState('');
   const [imageError, setImageError] = useState<string | null>(null);
   const [newTag, setNewTag] = useState('');
@@ -82,12 +130,18 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
       if (e.target.files && e.target.files[0]) {
           const file = e.target.files[0];
           setImageError(null);
+          setIsCompressing(true);
           try {
-              const dataUrl = await fileToDataUrl(file);
-              setItem(prev => ({ ...prev, images: [dataUrl] }));
+              const compressedDataUrl = await compressImageForAirtable(file);
+              setItem(prev => ({ ...prev, images: [compressedDataUrl] }));
           } catch (err: any) {
-              setImageError("Failed to read the image file. It might be corrupted.");
-              console.error("Image read error:", err);
+              setImageError(err.message || "Failed to process the image file.");
+              console.error("Image compression error:", err);
+          } finally {
+              setIsCompressing(false);
+               if (fileInputRef.current) {
+                fileInputRef.current.value = '';
+              }
           }
       }
   };
@@ -98,6 +152,9 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
   
   const handleRemoveImage = () => {
     setItem(prev => ({ ...prev, images: [] }));
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
   
   const handleTagInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -135,7 +192,6 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
       const mergedTags = Array.from(new Set([...currentTags, ...newTags]));
       setItem(prev => ({ ...prev, tags: mergedTags }));
     } catch (err: any) {
-// Fix: Add curly braces to the catch block to fix syntax error. This resolves multiple subsequent scope-related errors.
       setTagError(err.message || 'Failed to generate tags.');
     } finally {
       setIsTagging(false);
@@ -193,7 +249,12 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
             </div>
           )}
           <div className="w-full sm:w-1/3">
-             {item.images && item.images.length > 0 ? (
+             {isCompressing ? (
+                <div className="flex flex-col items-center justify-center aspect-square w-full border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg text-slate-500 dark:text-slate-400">
+                    <SpinnerIcon className="w-8 h-8" />
+                    <span className="text-xs mt-2">Compressing...</span>
+                </div>
+             ) : item.images && item.images.length > 0 ? (
                  <div className="relative group aspect-square">
                     <img src={item.images[0]} alt="Item preview" className="w-full h-full object-cover rounded-lg shadow-md" />
                     <button
