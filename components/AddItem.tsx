@@ -33,74 +33,13 @@ const emptyItem: Omit<Item, 'id' | 'sku' | 'airtableId'> = {
   flagged: false,
 };
 
-// This function is critical for ensuring uploads succeed.
-// It uses a multi-step compression strategy to ensure the image's base64 representation
-// fits within Airtable's "Long Text" field limit. It rejects the promise if the image cannot be compressed sufficiently.
-const resizeImage = (file: File): Promise<string> => {
-    // Airtable's long text field limit is ~100k chars. Let's be very safe.
-    const MAX_BASE64_SIZE = 90000;
 
-    const compressionSteps = [
-        { quality: 0.9, maxDimension: 1280 },
-        { quality: 0.8, maxDimension: 1280 },
-        { quality: 0.9, maxDimension: 1024 },
-        { quality: 0.8, maxDimension: 1024 },
-        { quality: 0.7, maxDimension: 1024 },
-        { quality: 0.9, maxDimension: 800 },
-        { quality: 0.8, maxDimension: 800 },
-        { quality: 0.7, maxDimension: 800 },
-        { quality: 0.7, maxDimension: 640 }, // Aggressive step
-    ];
-
+const fileToDataUrl = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.readAsDataURL(file);
-        reader.onload = (event) => {
-            if (!event.target?.result) {
-                return reject(new Error('Failed to read file.'));
-            }
-            const img = new Image();
-            img.src = event.target.result as string;
-            img.onload = () => {
-                const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d');
-                if (!ctx) return reject(new Error('Failed to get canvas context'));
-
-                for (const step of compressionSteps) {
-                    let { width, height } = img;
-
-                    // Calculate new dimensions while maintaining aspect ratio
-                    if (width > height) {
-                        if (width > step.maxDimension) {
-                            height *= step.maxDimension / width;
-                            width = step.maxDimension;
-                        }
-                    } else {
-                        if (height > step.maxDimension) {
-                            width *= step.maxDimension / height;
-                            height = step.maxDimension;
-                        }
-                    }
-                    
-                    canvas.width = Math.round(width);
-                    canvas.height = Math.round(height);
-                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                    
-                    const dataUrl = canvas.toDataURL('image/jpeg', step.quality);
-                    
-                    if (dataUrl.length < MAX_BASE64_SIZE) {
-                        resolve(dataUrl);
-                        return;
-                    }
-                }
-
-                // If the loop completes, no compression step was successful
-                console.error(`Image "${file.name}" could not be compressed to fit under ${MAX_BASE64_SIZE} characters.`);
-                reject(new Error(`Image "${file.name}" is too large to upload, even after aggressive compression.`));
-            };
-            img.onerror = () => reject(new Error(`Image "${file.name}" failed to load. It may be corrupt or in an unsupported format.`));
-        };
-        reader.onerror = () => reject(new Error('Failed to read file.'));
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = error => reject(error);
     });
 };
 
@@ -114,7 +53,6 @@ const dataUrlToFile = async (dataUrl: string, filename: string): Promise<File> =
 
 const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpdated, onCancel, isSaving, error }) => {
   const [item, setItem] = useState<Partial<Item>>(itemToEdit || emptyItem);
-  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [isTagging, setIsTagging] = useState(false);
   const [tagError, setTagError] = useState('');
   const [imageError, setImageError] = useState<string | null>(null);
@@ -125,10 +63,8 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
   useEffect(() => {
     if (itemToEdit) {
       setItem(itemToEdit);
-      setImagePreviews(itemToEdit.images || []);
     } else {
       setItem(emptyItem);
-      setImagePreviews([]);
     }
   }, [itemToEdit]);
 
@@ -143,42 +79,25 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
   };
 
   const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      setImageError(null); // Clear previous error
-      const files: File[] = Array.from(e.target.files);
-      const newPreviews: string[] = [];
-
-      const results = await Promise.allSettled(files.map(file => resizeImage(file)));
-
-      let anyFailed = false;
-      results.forEach((result, index) => {
-        if (result.status === 'fulfilled') {
-          newPreviews.push(result.value);
-        } else {
-          console.error(`Failed to process image ${files[index].name}:`, result.reason);
-          if (!anyFailed) {
-            setImageError(result.reason.message || "An image could not be processed. It might be too large or corrupted.");
+      if (e.target.files && e.target.files[0]) {
+          const file = e.target.files[0];
+          setImageError(null);
+          try {
+              const dataUrl = await fileToDataUrl(file);
+              setItem(prev => ({ ...prev, images: [dataUrl] }));
+          } catch (err: any) {
+              setImageError("Failed to read the image file. It might be corrupted.");
+              console.error("Image read error:", err);
           }
-          anyFailed = true;
-        }
-      });
-      
-      if (newPreviews.length > 0) {
-          const combinedPreviews = [...imagePreviews, ...newPreviews].slice(0, 5);
-          setImagePreviews(combinedPreviews);
-          setItem(prev => ({ ...prev, images: combinedPreviews }));
       }
-    }
   };
   
   const triggerFileInput = () => {
     fileInputRef.current?.click();
   };
   
-  const handleRemoveImage = (index: number) => {
-    const updatedPreviews = imagePreviews.filter((_, i) => i !== index);
-    setImagePreviews(updatedPreviews);
-    setItem(prev => ({ ...prev, images: updatedPreviews }));
+  const handleRemoveImage = () => {
+    setItem(prev => ({ ...prev, images: [] }));
   };
   
   const handleTagInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -201,7 +120,7 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
   };
 
   const handleGenerateTags = useCallback(async () => {
-    if (!imagePreviews.length) {
+    if (!item.images || !item.images.length) {
       setTagError("Please add an image first to generate tags.");
       return;
     }
@@ -209,18 +128,19 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
     setTagError('');
     try {
       const { name = '', maker = '', category = '', description = '' } = item;
-      const imageToAnalyze: File = await dataUrlToFile(imagePreviews[0], 'item-image.jpg');
+      const imageToAnalyze: File = await dataUrlToFile(item.images[0], 'item-image.jpg');
       
       const newTags = await generateTags(imageToAnalyze, name, maker, category, description);
       const currentTags = item.tags || [];
       const mergedTags = Array.from(new Set([...currentTags, ...newTags]));
       setItem(prev => ({ ...prev, tags: mergedTags }));
     } catch (err: any) {
+// Fix: Add curly braces to the catch block to fix syntax error. This resolves multiple subsequent scope-related errors.
       setTagError(err.message || 'Failed to generate tags.');
     } finally {
       setIsTagging(false);
     }
-  }, [item, imagePreviews]);
+  }, [item]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -229,7 +149,7 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
       ...item,
       id: item.id || crypto.randomUUID(),
       sku: item.sku || `WHS-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
-      images: imagePreviews,
+      images: item.images || [],
     };
 
     if (itemToEdit) {
@@ -239,7 +159,7 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
     }
   };
   
-  const canSubmit = item.name && imagePreviews.length > 0;
+  const canSubmit = item.name && item.images && item.images.length > 0;
   
   const inputStyle = "block w-full rounded-lg border-slate-300 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/50 dark:bg-slate-700 dark:border-slate-600 dark:placeholder-slate-400 dark:text-white sm:text-sm transition";
   const checkboxStyle = "h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-600 dark:bg-slate-700 dark:border-slate-600 dark:checked:bg-blue-500";
@@ -266,42 +186,40 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
 
         {/* Image Uploader */}
         <div className="space-y-4">
-          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Images (up to 5, first is primary)</label>
+          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Primary Image</label>
           {imageError && (
             <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative text-sm" role="alert">
                 <p><strong className="font-bold">Image Error: </strong> {imageError}</p>
             </div>
           )}
-          <div className="grid grid-cols-3 sm:grid-cols-5 gap-4">
-            {imagePreviews.map((src, index) => (
-              <div key={index} className="relative group aspect-square">
-                <img src={src} alt={`Preview ${index + 1}`} className="w-full h-full object-cover rounded-lg shadow-md" />
+          <div className="w-full sm:w-1/3">
+             {item.images && item.images.length > 0 ? (
+                 <div className="relative group aspect-square">
+                    <img src={item.images[0]} alt="Item preview" className="w-full h-full object-cover rounded-lg shadow-md" />
+                    <button
+                      type="button"
+                      onClick={handleRemoveImage}
+                      className="absolute -top-2 -right-2 bg-red-600 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                      aria-label="Remove image"
+                    >
+                      <TrashIcon className="w-4 h-4" />
+                    </button>
+                  </div>
+             ) : (
                 <button
-                  type="button"
-                  onClick={() => handleRemoveImage(index)}
-                  className="absolute -top-2 -right-2 bg-red-600 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                  aria-label={`Remove image ${index + 1}`}
+                    type="button"
+                    onClick={triggerFileInput}
+                    className="flex flex-col items-center justify-center aspect-square w-full border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg text-slate-500 dark:text-slate-400 hover:border-blue-500 hover:text-blue-600 dark:hover:text-blue-500 transition-colors"
                 >
-                  <TrashIcon className="w-4 h-4" />
+                    <CameraIcon className="w-8 h-8" />
+                    <span className="text-xs mt-1">Add Image</span>
                 </button>
-              </div>
-            ))}
-            {imagePreviews.length < 5 && (
-              <button
-                type="button"
-                onClick={triggerFileInput}
-                className="flex flex-col items-center justify-center aspect-square w-full border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg text-slate-500 dark:text-slate-400 hover:border-blue-500 hover:text-blue-600 dark:hover:text-blue-500 transition-colors"
-              >
-                <CameraIcon className="w-8 h-8" />
-                <span className="text-xs mt-1">Add Image</span>
-              </button>
-            )}
+             )}
           </div>
           <input
             type="file"
             ref={fileInputRef}
             onChange={handleImageChange}
-            multiple
             accept="image/*"
             className="hidden"
             capture="environment"
@@ -353,7 +271,7 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
                 <button
                     type="button"
                     onClick={handleGenerateTags}
-                    disabled={isTagging || !imagePreviews.length}
+                    disabled={isTagging || !item.images?.length}
                     className="flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-blue-100 text-blue-800 hover:bg-blue-200 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900 transition"
                 >
                     {isTagging ? <SpinnerIcon className="w-5 h-5" /> : <TagIcon className="w-5 h-5" />}

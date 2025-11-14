@@ -17,13 +17,30 @@ const HEADERS = {
 const mapAirtableRecordToItem = (record: any): Item => {
   const fields = record.fields;
   
-  // Collect images from up to 5 separate fields (ImageData1, ImageData2, etc.)
+  // Reassemble a chunked image from multiple fields if `ImageChunks` is present.
   const images: string[] = [];
-  for (let i = 1; i <= 5; i++) {
-    if (fields[`ImageData${i}`]) {
-      images.push(fields[`ImageData${i}`]);
-    }
+  const chunkCount = fields.ImageChunks || 0;
+  if (chunkCount > 0) {
+      let fullImageString = '';
+      for (let i = 1; i <= chunkCount; i++) {
+          fullImageString += fields[`ImageData${i}`] || '';
+      }
+      if (fullImageString) {
+          // Re-add the data URL prefix that was stripped before chunking.
+          // We assume jpeg as it's the most common format for web uploads.
+          const prefix = 'data:image/jpeg;base64,';
+          // Check if the prefix is already there from a previous, non-chunked save.
+          if (!fullImageString.startsWith('data:')) {
+            images.push(prefix + fullImageString);
+          } else {
+            images.push(fullImageString);
+          }
+      }
+  } else if (fields.ImageData1) { 
+      // Fallback for old records that weren't chunked.
+      images.push(fields.ImageData1);
   }
+
 
   let tags: string[] = [];
     try {
@@ -69,15 +86,41 @@ const mapItemToAirtableFields = (item: Item) => {
   // Exclude airtableId from the fields sent to Airtable
   const { airtableId, ...itemData } = item;
   
-  // Create an object to hold the separate image fields.
-  const imageFields: { [key: string]: string | undefined } = {};
-  const images = itemData.images || [];
-  for (let i = 0; i < 5; i++) {
-    // Assign image data to ImageData1, ImageData2, etc.
-    // If an image doesn't exist for a slot, `undefined` will cause Airtable to clear the field.
-    imageFields[`ImageData${i + 1}`] = images[i] || undefined;
+  const MAX_CHUNK_SIZE = 95000; // Be safe with Airtable's 100k limit.
+  const MAX_CHUNKS = 5; // We have up to ImageData5 fields.
+
+  const imageFields: { [key: string]: any } = {};
+  const primaryImage = (itemData.images && itemData.images[0]) ? itemData.images[0] : null;
+
+  if (primaryImage) {
+      // Strip the data URL prefix (e.g., "data:image/jpeg;base64,") before chunking.
+      const base64Data = primaryImage.split(',')[1];
+      const chunks: string[] = [];
+      for (let i = 0; i < base64Data.length; i += MAX_CHUNK_SIZE) {
+          chunks.push(base64Data.substring(i, i + MAX_CHUNK_SIZE));
+      }
+
+      if (chunks.length > MAX_CHUNKS) {
+          throw new Error(`Image is too large to be stored in Airtable, even with chunking. Max size is approx ${MAX_CHUNK_SIZE * MAX_CHUNKS / 1024 / 1024} MB.`);
+      }
+
+      imageFields['ImageChunks'] = chunks.length;
+      chunks.forEach((chunk, index) => {
+          imageFields[`ImageData${index + 1}`] = chunk;
+      });
+      
+      // Clear out unused image fields to prevent stale data.
+      for (let i = chunks.length; i < MAX_CHUNKS; i++) {
+          imageFields[`ImageData${i + 1}`] = undefined;
+      }
+  } else {
+      // If there's no image, clear all image-related fields.
+      imageFields['ImageChunks'] = 0;
+      for (let i = 0; i < MAX_CHUNKS; i++) {
+          imageFields[`ImageData${i + 1}`] = undefined;
+      }
   }
-  
+
   return {
     'AppId': itemData.id,
     'Name': itemData.name,
@@ -86,7 +129,7 @@ const mapItemToAirtableFields = (item: Item) => {
     'Price': itemData.price === null ? undefined : itemData.price, // Airtable doesn't like null for number fields
     'Category': itemData.category,
     'Tags': JSON.stringify(itemData.tags || []),
-    ...imageFields, // Spread the individual image fields into the payload
+    ...imageFields, // Spread the chunked image fields into the payload
     'Consigned': itemData.consigned,
     'Consignee': itemData.consignee,
     'Shippable': itemData.shippable,
