@@ -33,7 +33,11 @@ const emptyItem: Omit<Item, 'id' | 'sku' | 'airtableId'> = {
   flagged: false,
 };
 
-const resizeImage = (file: File, maxWidth = 300, maxHeight = 300, quality = 0.7): Promise<string> => {
+// This function is critical for ensuring uploads succeed.
+// Airtable's "Long Text" field has a 100,000 character limit.
+// A base64 string from a large photo can easily exceed this.
+// These settings aggressively resize the image to ensure the data string is small enough.
+const resizeImage = (file: File, maxWidth = 500, maxHeight = 500, quality = 0.7): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);

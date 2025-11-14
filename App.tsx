@@ -4,6 +4,7 @@ import Dashboard from './components/Dashboard';
 import ItemForm from './components/AddItem';
 import Header from './components/Header';
 import Login from './components/Login';
+import ImageViewer from './components/ImageViewer';
 import { getInventory, addItem, deleteItem, updateItem } from './services/airtableService';
 
 type View = 'dashboard' | 'itemForm';
@@ -18,6 +19,7 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeFilter, setActiveFilter] = useState('All');
+  const [imageViewerState, setImageViewerState] = useState<{ images: string[], startIndex: number, name: string } | null>(null);
   
   useEffect(() => {
     const savedSession = localStorage.getItem('userSession');
@@ -128,6 +130,16 @@ const App: React.FC = () => {
     setError(null); // Clear errors when cancelling
   }
   
+  const handleViewItemImages = (item: Item, startIndex: number = 0) => {
+    if (item.images && item.images.length > 0) {
+      setImageViewerState({ images: item.images, startIndex, name: item.name });
+    }
+  };
+
+  const handleCloseImageViewer = () => {
+    setImageViewerState(null);
+  };
+  
   const filteredItems = useMemo(() => {
     if (!inventory) return [];
     
@@ -170,6 +182,7 @@ const App: React.FC = () => {
             onDeleteItem={handleDeleteItem}
             onEditItem={handleEditClick}
             onAddItem={() => { setEditingItem(null); setCurrentView('itemForm'); setError(null); }}
+            onViewItemImages={handleViewItemImages}
             isLoading={isLoading}
             error={error}
             onRetry={retryFetch}
@@ -191,6 +204,14 @@ const App: React.FC = () => {
           />
         )}
       </div>
+       {imageViewerState && (
+        <ImageViewer 
+          images={imageViewerState.images}
+          startIndex={imageViewerState.startIndex}
+          itemName={imageViewerState.name}
+          onClose={handleCloseImageViewer}
+        />
+      )}
       <footer className="text-center pt-10 text-xs text-slate-500 dark:text-slate-400">
         <p>Powered by PureHome.io</p>
       </footer>

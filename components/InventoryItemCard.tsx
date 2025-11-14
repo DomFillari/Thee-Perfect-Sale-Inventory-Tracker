@@ -6,9 +6,10 @@ interface InventoryItemCardProps {
   item: Item;
   onDelete: (id: string) => void;
   onEdit: (item: Item) => void;
+  onViewImages: (item: Item, startIndex: number) => void;
 }
 
-const InventoryItemCard: React.FC<InventoryItemCardProps> = ({ item, onDelete, onEdit }) => {
+const InventoryItemCard: React.FC<InventoryItemCardProps> = ({ item, onDelete, onEdit, onViewImages }) => {
   const formatPrice = (price: number | null) => {
     if (price === null || price === undefined) return 'No price';
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(price);
@@ -17,7 +18,18 @@ const InventoryItemCard: React.FC<InventoryItemCardProps> = ({ item, onDelete, o
   return (
     <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg overflow-hidden transform hover:-translate-y-1 transition-transform duration-300 flex flex-col group">
       <div className="relative aspect-square">
-        <img src={item.images[0]} alt={item.name} className="w-full h-full object-cover" />
+        {item.images && item.images.length > 0 ? (
+          <img 
+            src={item.images[0]} 
+            alt={item.name} 
+            className="w-full h-full object-cover cursor-pointer" 
+            onClick={() => onViewImages(item, 0)}
+          />
+        ) : (
+          <div className="w-full h-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center">
+            <span className="text-slate-500 text-xs">No Image</span>
+          </div>
+        )}
         {item.consigned && (
             <div 
                 className="absolute top-2 left-2 bg-yellow-400 text-yellow-900 w-7 h-7 rounded-full flex items-center justify-center font-bold text-sm shadow-lg"

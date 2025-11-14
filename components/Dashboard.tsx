@@ -8,6 +8,7 @@ interface DashboardProps {
   onDeleteItem: (id: string) => void;
   onEditItem: (item: Item) => void;
   onAddItem: () => void;
+  onViewItemImages: (item: Item, startIndex: number) => void;
   isLoading: boolean;
   error: string | null;
   onRetry: () => void;
@@ -25,6 +26,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     onDeleteItem, 
     onEditItem, 
     onAddItem, 
+    onViewItemImages,
     isLoading, 
     error, 
     onRetry,
@@ -92,7 +94,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       {items.length > 0 ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-5">
           {items.map(item => (
-            <InventoryItemCard key={item.id} item={item} onDelete={onDeleteItem} onEdit={onEditItem} />
+            <InventoryItemCard key={item.id} item={item} onDelete={onDeleteItem} onEdit={onEditItem} onViewImages={onViewItemImages} />
           ))}
         </div>
       ) : (

@@ -1,4 +1,3 @@
-
 import type { Item } from '../types';
 
 // IMPORTANT: Replace these placeholders with your actual Airtable credentials.
@@ -18,17 +17,12 @@ const HEADERS = {
 const mapAirtableRecordToItem = (record: any): Item => {
   const fields = record.fields;
   
-  let images: string[] = [];
-  try {
-    // Images are stored as a JSON string array in a "Long Text" field named ImageData.
-    if (fields.ImageData) {
-        const parsedImages = JSON.parse(fields.ImageData);
-        if (Array.isArray(parsedImages)) {
-            images = parsedImages;
-        }
+  // Collect images from up to 5 separate fields (ImageData1, ImageData2, etc.)
+  const images: string[] = [];
+  for (let i = 1; i <= 5; i++) {
+    if (fields[`ImageData${i}`]) {
+      images.push(fields[`ImageData${i}`]);
     }
-  } catch (e) {
-      console.error("Failed to parse ImageData field from Airtable:", e);
   }
 
   let tags: string[] = [];
@@ -74,6 +68,16 @@ const mapAirtableRecordToItem = (record: any): Item => {
 const mapItemToAirtableFields = (item: Item) => {
   // Exclude airtableId from the fields sent to Airtable
   const { airtableId, ...itemData } = item;
+  
+  // Create an object to hold the separate image fields.
+  const imageFields: { [key: string]: string | undefined } = {};
+  const images = itemData.images || [];
+  for (let i = 0; i < 5; i++) {
+    // Assign image data to ImageData1, ImageData2, etc.
+    // If an image doesn't exist for a slot, `undefined` will cause Airtable to clear the field.
+    imageFields[`ImageData${i + 1}`] = images[i] || undefined;
+  }
+  
   return {
     'AppId': itemData.id,
     'Name': itemData.name,
@@ -82,8 +86,7 @@ const mapItemToAirtableFields = (item: Item) => {
     'Price': itemData.price === null ? undefined : itemData.price, // Airtable doesn't like null for number fields
     'Category': itemData.category,
     'Tags': JSON.stringify(itemData.tags || []),
-    // To store images reliably, we stringify the array of data URLs and save to a "Long Text" field.
-    'ImageData': JSON.stringify(itemData.images || []),
+    ...imageFields, // Spread the individual image fields into the payload
     'Consigned': itemData.consigned,
     'Consignee': itemData.consignee,
     'Shippable': itemData.shippable,
