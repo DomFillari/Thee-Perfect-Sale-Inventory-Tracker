@@ -36,79 +36,84 @@ const emptyItem: Omit<Item, 'id' | 'sku' | 'airtableId'> = {
 // This function is critical for ensuring uploads succeed.
 // It intelligently resizes and compresses an image to ensure its base64 representation
 // fits within Airtable's "Long Text" field limit (~100,000 characters).
-// It prioritizes quality, then dimensions, to get the best possible result under the size constraint.
+// It rejects the promise if the image cannot be compressed sufficiently.
 const resizeImage = (file: File): Promise<string> => {
-  const MAX_BASE64_SIZE = 98000; // Airtable's limit is ~100k, leave a 2k buffer.
-  const INITIAL_MAX_DIMENSION = 1024; // Start with a good resolution
-  const MIN_DIMENSION = 300; // The smallest we'll resize to
+    const MAX_BASE64_SIZE = 95000; // Be more conservative. Airtable limit is ~100k.
+    const MAX_DIMENSION = 1280; // Start with a good resolution
+    const MIN_DIMENSION = 400; // The smallest we'll resize to
+    const QUALITY_STEP = 0.1;
+    const MIN_QUALITY = 0.6;
+    const DIMENSION_STEP = 0.85; // Reduce by 15%
 
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = (event) => {
-      const img = new Image();
-      img.src = event.target?.result as string;
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return reject(new Error('Failed to get canvas context'));
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+            const img = new Image();
+            img.src = event.target?.result as string;
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                if (!ctx) return reject(new Error('Failed to get canvas context'));
 
-        let { width, height } = img;
+                let { width, height } = img;
 
-        // Scale down to the initial max dimension
-        if (width > height) {
-          if (width > INITIAL_MAX_DIMENSION) {
-            height *= INITIAL_MAX_DIMENSION / width;
-            width = INITIAL_MAX_DIMENSION;
-          }
-        } else {
-          if (height > INITIAL_MAX_DIMENSION) {
-            width *= INITIAL_MAX_DIMENSION / height;
-            height = INITIAL_MAX_DIMENSION;
-          }
-        }
-        
-        width = Math.round(width);
-        height = Math.round(height);
-        
-        let quality = 0.9;
-        
-        const attemptResize = (): string => {
-            canvas.width = width;
-            canvas.height = height;
-            ctx.drawImage(img, 0, 0, width, height);
-            return canvas.toDataURL('image/jpeg', quality);
-        }
-        
-        let dataUrl = attemptResize();
-        
-        while (dataUrl.length > MAX_BASE64_SIZE && (width > MIN_DIMENSION || quality > 0.5)) {
-            // First, try reducing quality
-            if (quality > 0.5) {
-                quality = parseFloat((quality - 0.1).toFixed(1));
-            } else {
-                // If quality is at minimum, reduce dimensions and reset quality
-                width = Math.round(width * 0.9);
-                height = Math.round(height * 0.9);
-                quality = 0.8; // Reset quality for the new, smaller size
-            }
-            dataUrl = attemptResize();
-        }
+                // Initial resize to max dimension
+                if (width > height) {
+                    if (width > MAX_DIMENSION) {
+                        height *= MAX_DIMENSION / width;
+                        width = MAX_DIMENSION;
+                    }
+                } else {
+                    if (height > MAX_DIMENSION) {
+                        width *= MAX_DIMENSION / height;
+                        height = MAX_DIMENSION;
+                    }
+                }
+                width = Math.round(width);
+                height = Math.round(height);
+                
+                let quality = 0.95; // Start with high quality
+                let dataUrl = '';
 
-        if (dataUrl.length > MAX_BASE64_SIZE) {
-            console.warn("Image could not be compressed enough. Upload might still fail.", {
-                finalSize: dataUrl.length,
-                maxSize: MAX_BASE64_SIZE
-            });
-        }
-        
-        resolve(dataUrl);
-      };
-      img.onerror = () => reject(new Error('Image failed to load'));
-    };
-    reader.onerror = () => reject(new Error('Failed to read file'));
-  });
+                const attemptCompression = () => {
+                    canvas.width = width;
+                    canvas.height = height;
+                    ctx.drawImage(img, 0, 0, width, height);
+                    return canvas.toDataURL('image/jpeg', quality);
+                }
+
+                dataUrl = attemptCompression();
+
+                // Iteratively reduce quality and then dimensions until the size is acceptable
+                while (dataUrl.length > MAX_BASE64_SIZE && (width > MIN_DIMENSION || quality > MIN_QUALITY)) {
+                    if (quality > MIN_QUALITY) {
+                        quality = parseFloat((quality - QUALITY_STEP).toFixed(2));
+                    } else {
+                        width = Math.round(width * DIMENSION_STEP);
+                        height = Math.round(height * DIMENSION_STEP);
+                    }
+                    dataUrl = attemptCompression();
+                }
+
+                if (dataUrl.length > MAX_BASE64_SIZE) {
+                    // We've done our best but it's still too big. Reject the promise.
+                    console.error("Image could not be compressed enough. Aborting upload for this image.", {
+                        finalSize: dataUrl.length,
+                        maxSize: MAX_BASE64_SIZE,
+                    });
+                    reject(new Error(`Image "${file.name}" is too large to upload, even after compression.`));
+                    return;
+                }
+                
+                resolve(dataUrl);
+            };
+            img.onerror = () => reject(new Error(`Image "${file.name}" failed to load. It may be corrupt or in an unsupported format.`));
+        };
+        reader.onerror = () => reject(new Error('Failed to read file.'));
+    });
 };
+
 
 const dataUrlToFile = async (dataUrl: string, filename: string): Promise<File> => {
     const res = await fetch(dataUrl);
@@ -122,6 +127,7 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [isTagging, setIsTagging] = useState(false);
   const [tagError, setTagError] = useState('');
+  const [imageError, setImageError] = useState<string | null>(null);
   const [newTag, setNewTag] = useState('');
   
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -148,20 +154,30 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
 
   const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      // Fix: Explicitly type `files` as `File[]` to resolve type inference issue.
+      setImageError(null); // Clear previous error
       const files: File[] = Array.from(e.target.files);
       const newPreviews: string[] = [];
-      for (const file of files) {
-        try {
-          const resizedDataUrl = await resizeImage(file);
-          newPreviews.push(resizedDataUrl);
-        } catch (error) {
-          console.error("Error resizing image:", error);
+
+      const results = await Promise.allSettled(files.map(file => resizeImage(file)));
+
+      let anyFailed = false;
+      results.forEach((result, index) => {
+        if (result.status === 'fulfilled') {
+          newPreviews.push(result.value);
+        } else {
+          console.error(`Failed to process image ${files[index].name}:`, result.reason);
+          if (!anyFailed) {
+            setImageError(result.reason.message || "An image could not be processed. It might be too large or corrupted.");
+          }
+          anyFailed = true;
         }
+      });
+      
+      if (newPreviews.length > 0) {
+          const combinedPreviews = [...imagePreviews, ...newPreviews].slice(0, 5);
+          setImagePreviews(combinedPreviews);
+          setItem(prev => ({ ...prev, images: combinedPreviews }));
       }
-      const combinedPreviews = [...imagePreviews, ...newPreviews].slice(0, 5);
-      setImagePreviews(combinedPreviews);
-      setItem(prev => ({ ...prev, images: combinedPreviews }));
     }
   };
   
@@ -261,6 +277,11 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
         {/* Image Uploader */}
         <div className="space-y-4">
           <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Images (up to 5, first is primary)</label>
+          {imageError && (
+            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative text-sm" role="alert">
+                <p><strong className="font-bold">Image Error: </strong> {imageError}</p>
+            </div>
+          )}
           <div className="grid grid-cols-3 sm:grid-cols-5 gap-4">
             {imagePreviews.map((src, index) => (
               <div key={index} className="relative group aspect-square">
