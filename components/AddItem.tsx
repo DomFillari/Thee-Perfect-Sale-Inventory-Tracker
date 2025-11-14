@@ -34,79 +34,69 @@ const emptyItem: Omit<Item, 'id' | 'sku' | 'airtableId'> = {
 };
 
 // This function is critical for ensuring uploads succeed.
-// It intelligently resizes and compresses an image to ensure its base64 representation
-// fits within Airtable's "Long Text" field limit (~100,000 characters).
-// It rejects the promise if the image cannot be compressed sufficiently.
+// It uses a multi-step compression strategy to ensure the image's base64 representation
+// fits within Airtable's "Long Text" field limit. It rejects the promise if the image cannot be compressed sufficiently.
 const resizeImage = (file: File): Promise<string> => {
-    const MAX_BASE64_SIZE = 95000; // Be more conservative. Airtable limit is ~100k.
-    const MAX_DIMENSION = 1280; // Start with a good resolution
-    const MIN_DIMENSION = 400; // The smallest we'll resize to
-    const QUALITY_STEP = 0.1;
-    const MIN_QUALITY = 0.6;
-    const DIMENSION_STEP = 0.85; // Reduce by 15%
+    // Airtable's long text field limit is ~100k chars. Let's be very safe.
+    const MAX_BASE64_SIZE = 90000;
+
+    const compressionSteps = [
+        { quality: 0.9, maxDimension: 1280 },
+        { quality: 0.8, maxDimension: 1280 },
+        { quality: 0.9, maxDimension: 1024 },
+        { quality: 0.8, maxDimension: 1024 },
+        { quality: 0.7, maxDimension: 1024 },
+        { quality: 0.9, maxDimension: 800 },
+        { quality: 0.8, maxDimension: 800 },
+        { quality: 0.7, maxDimension: 800 },
+        { quality: 0.7, maxDimension: 640 }, // Aggressive step
+    ];
 
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.readAsDataURL(file);
         reader.onload = (event) => {
+            if (!event.target?.result) {
+                return reject(new Error('Failed to read file.'));
+            }
             const img = new Image();
-            img.src = event.target?.result as string;
+            img.src = event.target.result as string;
             img.onload = () => {
                 const canvas = document.createElement('canvas');
                 const ctx = canvas.getContext('2d');
                 if (!ctx) return reject(new Error('Failed to get canvas context'));
 
-                let { width, height } = img;
+                for (const step of compressionSteps) {
+                    let { width, height } = img;
 
-                // Initial resize to max dimension
-                if (width > height) {
-                    if (width > MAX_DIMENSION) {
-                        height *= MAX_DIMENSION / width;
-                        width = MAX_DIMENSION;
-                    }
-                } else {
-                    if (height > MAX_DIMENSION) {
-                        width *= MAX_DIMENSION / height;
-                        height = MAX_DIMENSION;
-                    }
-                }
-                width = Math.round(width);
-                height = Math.round(height);
-                
-                let quality = 0.95; // Start with high quality
-                let dataUrl = '';
-
-                const attemptCompression = () => {
-                    canvas.width = width;
-                    canvas.height = height;
-                    ctx.drawImage(img, 0, 0, width, height);
-                    return canvas.toDataURL('image/jpeg', quality);
-                }
-
-                dataUrl = attemptCompression();
-
-                // Iteratively reduce quality and then dimensions until the size is acceptable
-                while (dataUrl.length > MAX_BASE64_SIZE && (width > MIN_DIMENSION || quality > MIN_QUALITY)) {
-                    if (quality > MIN_QUALITY) {
-                        quality = parseFloat((quality - QUALITY_STEP).toFixed(2));
+                    // Calculate new dimensions while maintaining aspect ratio
+                    if (width > height) {
+                        if (width > step.maxDimension) {
+                            height *= step.maxDimension / width;
+                            width = step.maxDimension;
+                        }
                     } else {
-                        width = Math.round(width * DIMENSION_STEP);
-                        height = Math.round(height * DIMENSION_STEP);
+                        if (height > step.maxDimension) {
+                            width *= step.maxDimension / height;
+                            height = step.maxDimension;
+                        }
                     }
-                    dataUrl = attemptCompression();
+                    
+                    canvas.width = Math.round(width);
+                    canvas.height = Math.round(height);
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    
+                    const dataUrl = canvas.toDataURL('image/jpeg', step.quality);
+                    
+                    if (dataUrl.length < MAX_BASE64_SIZE) {
+                        resolve(dataUrl);
+                        return;
+                    }
                 }
 
-                if (dataUrl.length > MAX_BASE64_SIZE) {
-                    // We've done our best but it's still too big. Reject the promise.
-                    console.error("Image could not be compressed enough. Aborting upload for this image.", {
-                        finalSize: dataUrl.length,
-                        maxSize: MAX_BASE64_SIZE,
-                    });
-                    reject(new Error(`Image "${file.name}" is too large to upload, even after compression.`));
-                    return;
-                }
-                
-                resolve(dataUrl);
+                // If the loop completes, no compression step was successful
+                console.error(`Image "${file.name}" could not be compressed to fit under ${MAX_BASE64_SIZE} characters.`);
+                reject(new Error(`Image "${file.name}" is too large to upload, even after aggressive compression.`));
             };
             img.onerror = () => reject(new Error(`Image "${file.name}" failed to load. It may be corrupt or in an unsupported format.`));
         };
