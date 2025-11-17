@@ -27,6 +27,7 @@ const emptyItem: Omit<Item, 'id' | 'sku' | 'airtableId'> = {
   consigned: false,
   consignee: '',
   shippable: false,
+  weight: null,
   condition: CONDITIONS[2],
   flaws: '',
   size: '',
@@ -61,7 +62,7 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setItem(prev => ({ ...prev, [name]: name === 'price' ? (value === '' ? null : parseFloat(value)) : value }));
+    setItem(prev => ({ ...prev, [name]: (name === 'price' || name === 'weight') ? (value === '' ? null : parseFloat(value)) : value }));
   };
   
   const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -351,6 +352,17 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
                     <p className="text-slate-500 dark:text-slate-400">Is this item eligible for shipping?</p>
                 </div>
             </div>
+            {item.shippable && (
+                 <div className="pl-9">
+                    <label htmlFor="weight" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Weight (lbs)</label>
+                     <div className="relative mt-1">
+                        <input type="number" name="weight" id="weight" value={item.weight ?? ''} onChange={handleChange} className={`pr-12 ${inputStyle}`} placeholder="0.0" step="0.1" />
+                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3">
+                            <span className="text-slate-500 sm:text-sm">lbs</span>
+                        </div>
+                    </div>
+                </div>
+            )}
             <div className="relative flex items-start">
                 <div className="flex h-6 items-center">
                     <input id="listed" name="listed" type="checkbox" checked={item.listed || false} onChange={handleCheckboxChange} className={checkboxStyle} />

@@ -50,9 +50,29 @@ const App: React.FC = () => {
     }
   }, [userSession, fetchInventory]);
   
-  const handleLogin = (session: UserSession) => {
-    localStorage.setItem('userSession', JSON.stringify(session));
-    setUserSession(session);
+  const handleLogin = async (username: string, password: string) => {
+    // --- MOCK AUTHENTICATION ---
+    // In a real application, this would be a secure API call to a backend server.
+    // For demonstration purposes, we are using hardcoded credentials.
+    // DO NOT use this approach in production.
+    const validUsers = [
+      { username: 'Val', password: 'TPSInventory' },
+      { username: 'Cort', password: 'TPSInventory' },
+    ];
+    
+    const foundUser = validUsers.find(
+      (user) => user.username.toLowerCase() === username.toLowerCase() && user.password === password
+    );
+
+    if (foundUser) {
+      const session: UserSession = { username: foundUser.username }; // Use correct casing for display
+      localStorage.setItem('userSession', JSON.stringify(session));
+      setUserSession(session);
+    } else {
+      // Simulate a network delay
+      await new Promise(resolve => setTimeout(resolve, 500));
+      throw new Error('Invalid username or password.');
+    }
   }
   
   const handleLogout = () => {
@@ -155,11 +175,34 @@ const App: React.FC = () => {
     const lowercasedFilter = searchTerm.toLowerCase();
     if (!lowercasedFilter) return categoryFilteredItems;
 
-    return categoryFilteredItems.filter(item =>
-      item.name.toLowerCase().includes(lowercasedFilter) ||
-      (item.description && item.description.toLowerCase().includes(lowercasedFilter)) ||
-      (item.tags && item.tags.some(tag => tag.toLowerCase().includes(lowercasedFilter)))
-    );
+    return categoryFilteredItems.filter(item => {
+      const searchableStrings = [
+        item.name,
+        item.maker,
+        item.description,
+        item.category,
+        item.consignee,
+        item.condition,
+        item.flaws,
+        item.size,
+        item.sku,
+      ].filter(Boolean); // Filter out null/undefined/empty strings
+
+      if (searchableStrings.some(s => s.toLowerCase().includes(lowercasedFilter))) {
+        return true;
+      }
+      
+      const searchableNumbers = [item.price, item.weight].filter(n => n !== null && n !== undefined);
+      if (searchableNumbers.some(n => n.toString().includes(lowercasedFilter))) {
+        return true;
+      }
+      
+      if (item.tags && item.tags.some(tag => tag.toLowerCase().includes(lowercasedFilter))) {
+        return true;
+      }
+      
+      return false;
+    });
   }, [inventory, searchTerm, activeFilter]);
   
   if (!userSession) {

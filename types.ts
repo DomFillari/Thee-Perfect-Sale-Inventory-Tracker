@@ -19,6 +19,7 @@ export interface Item {
   consignee: string;
 
   shippable: boolean;
+  weight: number | null;
   condition: string;
   
   flaws: string;

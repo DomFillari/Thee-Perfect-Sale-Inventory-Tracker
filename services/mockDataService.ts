@@ -70,6 +70,7 @@ export const generateRandomItems = (count: number): Item[] => {
         const maker = getRandom(MAKERS);
         const price = Math.floor(Math.random() * 950) + 50; // Price between 50 and 1000
         const isConsigned = Math.random() > 0.7; // 30% chance of being consigned
+        const isShippable = Math.random() > 0.5;
         const category = getRandom(CATEGORIES);
 
         // Generate a placeholder image for each item.
@@ -88,7 +89,8 @@ export const generateRandomItems = (count: number): Item[] => {
             images: [imageDataUrl],
             consigned: isConsigned,
             consignee: isConsigned ? `Customer ${Math.floor(Math.random() * 100)}` : '',
-            shippable: Math.random() > 0.5,
+            shippable: isShippable,
+            weight: isShippable ? +(Math.random() * 50 + 1).toFixed(1) : null,
             condition: getRandom(CONDITIONS),
             flaws: getRandom(FLAW_DESCRIPTIONS),
             size: getRandom(SIZES),
