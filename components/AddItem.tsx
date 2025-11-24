@@ -266,7 +266,10 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
                     <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl border border-blue-100 dark:border-blue-800">
                         <h4 className="font-semibold text-blue-900 dark:text-blue-200 text-sm mb-2">AI Auto-Fill</h4>
                         <p className="text-xs text-blue-700 dark:text-blue-300 mb-3">
-                            Use Gemini to analyze your photo and automatically fill in the Name, Description, Maker, and Category—just like Google Lens.
+                            Use Gemini to analyze your photo and automatically fill in the details. Works for modern products, <strong>antiques, art, and vintage collectibles.</strong>
+                        </p>
+                        <p className="text-xs text-blue-600 dark:text-blue-400 italic mb-3">
+                           💡 Tip: For manufactured items, capture the label. For art/antiques, capture the entire object clearly.
                         </p>
                         <button
                             type="button"
