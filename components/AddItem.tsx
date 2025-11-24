@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Item } from '../types';
-import { generateTags } from '../services/geminiService';
+import { generateTags, identifyItem } from '../services/geminiService';
 import { uploadImage } from '../services/airtableService';
-import { CameraIcon, SpinnerIcon, TagIcon, TrashIcon, CloseIcon, InfoIcon } from './icons';
+import { CameraIcon, SpinnerIcon, TagIcon, TrashIcon, CloseIcon, InfoIcon, EyeIcon } from './icons';
 
 interface ItemFormProps {
   itemToEdit?: Item | null;
@@ -45,6 +45,7 @@ const dataUrlToFile = async (dataUrl: string, filename: string): Promise<File> =
 const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpdated, onCancel, isSaving, error }) => {
   const [item, setItem] = useState<Partial<Item>>(itemToEdit || emptyItem);
   const [isTagging, setIsTagging] = useState(false);
+  const [isIdentifying, setIsIdentifying] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [tagError, setTagError] = useState('');
   const [imageError, setImageError] = useState<string | null>(null);
@@ -145,6 +146,38 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
     }
   }, [item]);
 
+  const handleIdentifyItem = useCallback(async () => {
+    if (!item.images || !item.images.length) {
+        setTagError("Please upload an image first.");
+        return;
+    }
+    setIsIdentifying(true);
+    setTagError('');
+    
+    try {
+        const response = await fetch(item.images[0]);
+        const blob = await response.blob();
+        const imageFile = new File([blob], 'item-to-identify.jpg', { type: blob.type });
+        
+        const data = await identifyItem(imageFile);
+        
+        setItem(prev => ({
+            ...prev,
+            name: data.name,
+            maker: data.maker || prev.maker, // Keep existing if AI returns null/empty
+            description: data.description,
+            category: data.category || 'Other',
+            condition: data.condition || prev.condition,
+            tags: Array.from(new Set([...(prev.tags || []), ...data.tags]))
+        }));
+        
+    } catch (err: any) {
+        setTagError(err.message || 'Failed to identify item.');
+    } finally {
+        setIsIdentifying(false);
+    }
+  }, [item.images]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const finalItem: Item = {
@@ -195,35 +228,60 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
                 <p><strong className="font-bold">Image Error: </strong> {imageError}</p>
             </div>
           )}
-          <div className="w-full sm:w-1/3">
-             {isUploading ? (
-                <div className="flex flex-col items-center justify-center aspect-square w-full border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg text-slate-500 dark:text-slate-400">
-                    <SpinnerIcon className="w-8 h-8" />
-                    <span className="text-xs mt-2">Uploading...</span>
-                </div>
-             ) : item.images && item.images.length > 0 ? (
-                 <div className="relative group aspect-square">
-                    <img src={item.images[0]} alt="Item preview" className="w-full h-full object-cover rounded-lg shadow-md" />
+          
+          <div className="flex flex-col sm:flex-row gap-4 items-start">
+            <div className="w-full sm:w-1/3">
+                {isUploading ? (
+                    <div className="flex flex-col items-center justify-center aspect-square w-full border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg text-slate-500 dark:text-slate-400">
+                        <SpinnerIcon className="w-8 h-8" />
+                        <span className="text-xs mt-2">Uploading...</span>
+                    </div>
+                ) : item.images && item.images.length > 0 ? (
+                    <div className="relative group aspect-square">
+                        <img src={item.images[0]} alt="Item preview" className="w-full h-full object-cover rounded-lg shadow-md" />
+                        <button
+                        type="button"
+                        onClick={handleRemoveImage}
+                        className="absolute -top-2 -right-2 bg-red-600 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                        aria-label="Remove image"
+                        >
+                        <TrashIcon className="w-4 h-4" />
+                        </button>
+                    </div>
+                ) : (
                     <button
-                      type="button"
-                      onClick={handleRemoveImage}
-                      className="absolute -top-2 -right-2 bg-red-600 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                      aria-label="Remove image"
+                        type="button"
+                        onClick={triggerFileInput}
+                        className="flex flex-col items-center justify-center aspect-square w-full border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg text-slate-500 dark:text-slate-400 hover:border-blue-500 hover:text-blue-600 dark:hover:text-blue-500 transition-colors"
                     >
-                      <TrashIcon className="w-4 h-4" />
+                        <CameraIcon className="w-8 h-8" />
+                        <span className="text-xs mt-1">Add Image</span>
                     </button>
-                  </div>
-             ) : (
-                <button
-                    type="button"
-                    onClick={triggerFileInput}
-                    className="flex flex-col items-center justify-center aspect-square w-full border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg text-slate-500 dark:text-slate-400 hover:border-blue-500 hover:text-blue-600 dark:hover:text-blue-500 transition-colors"
-                >
-                    <CameraIcon className="w-8 h-8" />
-                    <span className="text-xs mt-1">Add Image</span>
-                </button>
-             )}
+                )}
+            </div>
+            
+            {/* AI Identify Button */}
+            <div className="flex-1 pt-2">
+                 {item.images && item.images.length > 0 && (
+                    <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl border border-blue-100 dark:border-blue-800">
+                        <h4 className="font-semibold text-blue-900 dark:text-blue-200 text-sm mb-2">AI Auto-Fill</h4>
+                        <p className="text-xs text-blue-700 dark:text-blue-300 mb-3">
+                            Use Gemini to analyze your photo and automatically fill in the Name, Description, Maker, and Category—just like Google Lens.
+                        </p>
+                        <button
+                            type="button"
+                            onClick={handleIdentifyItem}
+                            disabled={isIdentifying}
+                            className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-medium py-2 px-4 rounded-lg shadow-sm transition-all text-sm disabled:opacity-70 disabled:cursor-not-allowed"
+                        >
+                            {isIdentifying ? <SpinnerIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
+                            {isIdentifying ? 'Analyzing Image...' : '✨ Identify Item & Auto-Fill'}
+                        </button>
+                    </div>
+                 )}
+            </div>
           </div>
+          
           <input
             type="file"
             ref={fileInputRef}
@@ -283,7 +341,7 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
                     className="flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-blue-100 text-blue-800 hover:bg-blue-200 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900 transition"
                 >
                     {isTagging ? <SpinnerIcon className="w-5 h-5" /> : <TagIcon className="w-5 h-5" />}
-                    {isTagging ? 'Generating...' : 'Generate with AI'}
+                    {isTagging ? 'Generating...' : 'Add More Tags'}
                 </button>
             </div>
             {tagError && <p className="text-sm text-red-600 flex items-center gap-2"><InfoIcon className="w-4 h-4" /> {tagError}</p>}
