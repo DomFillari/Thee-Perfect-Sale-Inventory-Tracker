@@ -171,10 +171,10 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
             ...prev,
             name: data.name,
             maker: data.maker || prev.maker, // Keep existing if AI returns null/empty
-            description: data.description,
+            description: data.description, // This now contains the "AI Overview"
             category: data.category || 'Other',
             condition: data.condition || prev.condition,
-            price: data.price || prev.price, // Autofill price
+            price: data.price || prev.price, 
             tags: Array.from(new Set([...(prev.tags || []), ...data.tags]))
         }));
 
@@ -183,7 +183,7 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
         }
         
     } catch (err: any) {
-        setTagError(err.message || 'Failed to identify item.');
+        setTagError(err.message || 'Failed to get AI Overview.');
     } finally {
         setIsIdentifying(false);
     }
@@ -277,9 +277,9 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
                  {item.images && item.images.length > 0 && (
                     <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl border border-blue-100 dark:border-blue-800 space-y-3">
                         <div>
-                            <h4 className="font-semibold text-blue-900 dark:text-blue-200 text-sm mb-1">AI Smart Scanner</h4>
+                            <h4 className="font-semibold text-blue-900 dark:text-blue-200 text-sm mb-1">Search & Identify</h4>
                             <p className="text-xs text-blue-700 dark:text-blue-300">
-                                Instantly identify this item, find comps, and fill in the details (including price) using Google's search technology.
+                                Scans the image for visual fingerprints (shape, pattern, style) to perform a Reverse Image Search simulation.
                             </p>
                         </div>
                         
@@ -288,10 +288,10 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
                                 type="button"
                                 onClick={handleIdentifyItem}
                                 disabled={isIdentifying}
-                                className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg shadow-sm transition-all text-sm disabled:opacity-70 disabled:cursor-not-allowed"
+                                className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-medium py-3 px-4 rounded-lg shadow-sm transition-all text-sm disabled:opacity-70 disabled:cursor-not-allowed"
                             >
                                 {isIdentifying ? <SpinnerIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
-                                {isIdentifying ? 'Analyzing Item & Prices...' : 'Identify Item with AI'}
+                                {isIdentifying ? 'Scanning Fingerprint...' : '✨ Visual Fingerprint Scan'}
                             </button>
                         </div>
                     </div>
@@ -314,7 +314,7 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
             <div className="bg-slate-50 dark:bg-slate-700/50 p-4 rounded-lg border border-slate-200 dark:border-slate-600">
                 <h4 className="text-sm font-semibold text-slate-900 dark:text-white mb-2 flex items-center gap-2">
                     <InfoIcon className="w-4 h-4 text-blue-500" />
-                    Matched References Found:
+                    Sources & Visual Matches:
                 </h4>
                 <ul className="space-y-1">
                     {searchLinks.map((link, idx) => (
@@ -330,7 +330,6 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
                         </li>
                     ))}
                 </ul>
-                <p className="text-[10px] text-slate-400 mt-2">These results were used to generate the item description and price.</p>
             </div>
         )}
 
@@ -347,12 +346,23 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
             </div>
 
             <div className="md:col-span-2">
-                <label htmlFor="description" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Description</label>
-                <textarea name="description" id="description" rows={3} value={item.description || ''} onChange={handleChange} className={`mt-1 ${inputStyle}`}></textarea>
+                <label htmlFor="description" className="block text-sm font-medium text-slate-700 dark:text-slate-300 flex justify-between">
+                    <span>Description / AI Overview</span>
+                    {isIdentifying && <span className="text-xs text-blue-500 animate-pulse">Analyzing visual fingerprint...</span>}
+                </label>
+                <textarea 
+                    name="description" 
+                    id="description" 
+                    rows={5} 
+                    value={item.description || ''} 
+                    onChange={handleChange} 
+                    className={`mt-1 ${inputStyle}`}
+                    placeholder="AI Overview will appear here..."
+                ></textarea>
             </div>
 
             <div>
-                <label htmlFor="price" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Price ($)</label>
+                <label htmlFor="price" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Estimated Price ($)</label>
                 <div className="relative mt-1">
                     <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
                         <span className="text-slate-500 sm:text-sm">$</span>

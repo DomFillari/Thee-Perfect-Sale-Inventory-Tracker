@@ -113,73 +113,77 @@ export const identifyItem = async (imageFile: File): Promise<AutoIdentifiedItem>
       },
     };
 
-    // Prompt optimized to prioritize OCR (Reading Text) which is the "Secret Sauce" of Google Lens
+    // The Ultimate "Reverse Image Search" Simulation Prompt
     const prompt = `
-      You are an expert inventory specialist with "Google Lens"-like capabilities.
-      Your task is to identify this item with high precision using the 'googleSearch' tool.
-
-      CRITICAL PROCESS - DO NOT SKIP STEPS:
+      You are an advanced Visual Search Engine. Your goal is to replicate the behavior of a Reverse Image Search using visual analysis.
       
-      1. **READ TEXT FIRST (OCR)**: 
-         - Scan the image for ANY text, numbers, model codes, serial numbers, or brand logos.
-         - If found, use these EXACT alphanumeric strings as your primary search queries. 
-         - *Example*: If you see "Sony KV-2000", search for that. Do not just search for "TV".
-         - This is how Google Lens works; it prioritizes specific identifiers over general shapes.
+      PHASE 1: VISUAL FINGERPRINTING (Internal Thought Process)
+      1.  Scan the image for ANY text, logos, or serial numbers. If found, these are your primary search keys.
+      2.  If NO text is found, construct a "Visual Fingerprint" description.
+          *   Describe unique shapes (e.g., "bulbous bottom, long neck").
+          *   Describe materials/textures (e.g., "hammered copper", "crackled glaze").
+          *   Describe artistic styles (e.g., "Art Deco geometric", "Victorian floral").
+          *   Describe distinct markings (e.g., "blue crossed swords mark").
       
-      2. **VISUAL ANALYSIS**: 
-         - If NO text is clear, perform a deep visual analysis.
-         - Identify the era (Art Deco, Mid-Century), material (Teak, Porcelain, Bakelite), and specific style.
-         - Use these detailed visual descriptors for your search.
+      PHASE 2: REVERSE SEARCH EXECUTION
+      1.  Use the 'googleSearch' tool. 
+      2.  Construct a search query that combines your Visual Fingerprint with terms like "sold price", "vintage", "antique", "value", or "maker".
+          *   Example Query: "vintage green glass vase bubbles base pontil mark value"
+          *   Example Query: "antique bronze sculpture dancer signed DH chiparus"
+      3.  Look for "Sold Listings" or "Collector Guides" to identify the exact item.
+      
+      PHASE 3: AI OVERVIEW GENERATION
+      1.  Identify the item specifically.
+      2.  Write a "Google Lens Style" AI Overview in the 'description' field.
+          *   Start with "AI Overview: ".
+          *   Summarize the Item, Era, Maker, and Collectibility.
+      3.  Estimate the price based on the search results.
 
-      3. **MARKET RESEARCH**: 
-         - Use the search results to find "Sold" listings or catalog entries.
-         - Estimate the price based on current market value.
-
-      4. **FALLBACK**: 
-         - If search returns nothing, use your internal knowledge base to provide your best educated estimate for Name, Description, and Details. DO NOT return "Unknown" if you can guess.
-
-      RETURN JSON ONLY in this format:
+      RETURN JSON ONLY:
       {
-        "name": "Detailed Item Name (Brand + Model)",
-        "maker": "Brand/Artist (or 'Unmarked')",
-        "description": "Professional sales description including features, era, dimensions estimate, and condition notes.",
-        "category": "Apparel | Home Goods | Electronics | Collectibles | Other",
-        "condition": "Visual assessment (e.g. 'Good Vintage Condition')",
-        "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"],
-        "price": 0.00
+        "name": "Specific Title (e.g. 'Fenton Hobnail Milk Glass Vase')",
+        "maker": "Maker Name (or 'Unmarked [Style]')",
+        "description": "AI Overview: [Your detailed 3-5 sentence summary derived from the search results. Explain what it is and its value context.]",
+        "category": "Home Goods | Collectibles | Art | Other",
+        "condition": "Visual Assessment (e.g. 'Vintage - Good')",
+        "tags": ["tag1", "tag2", "material", "style", "era", "color"],
+        "price": 0.00 (Estimated market value)
       }
-      
-      Note: 'price' must be a number (no currency symbols). If absolutely unknown, return null.
     `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-pro-preview', // Strongest model for visual reasoning
       contents: { parts: [imagePart, { text: prompt }] },
       config: {
-        tools: [{ googleSearch: {} }],
-        // Thinking budget allows the model to "reason" about the image details before searching
-        thinkingConfig: { thinkingBudget: 2048 }, 
+        tools: [{ googleSearch: {} }], 
+        // 10k token budget to allow for detailed "Visual Fingerprinting" and search synthesis
+        thinkingConfig: { thinkingBudget: 10240 }, 
       }
     });
 
     const responseText = response.text?.trim();
     if (!responseText) throw new Error("No response from AI");
 
-    // Extract JSON
-    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
+    // Robust JSON extraction
+    const jsonStart = responseText.indexOf('{');
+    const jsonEnd = responseText.lastIndexOf('}');
+    
+    if (jsonStart === -1 || jsonEnd === -1) {
         console.error("Invalid AI Output:", responseText);
-        throw new Error("AI could not identify the item structurally.");
+        throw new Error("AI could not generate the Overview.");
     }
+
+    const jsonString = responseText.substring(jsonStart, jsonEnd + 1);
 
     let data: AutoIdentifiedItem;
     try {
-        data = JSON.parse(jsonMatch[0]) as AutoIdentifiedItem;
+        data = JSON.parse(jsonString) as AutoIdentifiedItem;
     } catch (e) {
-        throw new Error("Failed to parse AI response.");
+        console.error("JSON Parse Error", e);
+        throw new Error("Failed to parse AI Overview.");
     }
 
-    // Extract Search Links
+    // Extract Search Links for "Sources"
     const candidates = response.candidates;
     const chunks = candidates?.[0]?.groundingMetadata?.groundingChunks;
 
@@ -198,6 +202,6 @@ export const identifyItem = async (imageFile: File): Promise<AutoIdentifiedItem>
 
   } catch (error) {
     console.error("Error identifying item:", error);
-    throw new Error("Failed to identify item. Please try again.");
+    throw new Error("Failed to get AI Overview. Please try again.");
   }
 };
