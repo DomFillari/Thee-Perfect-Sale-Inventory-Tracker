@@ -6,6 +6,7 @@ import Header from './components/Header';
 import Login from './components/Login';
 import ImageViewer from './components/ImageViewer';
 import { getInventory, addItem, deleteItem, updateItem } from './services/airtableService';
+import { InfoIcon } from './components/icons';
 
 type View = 'dashboard' | 'itemForm';
 
@@ -21,6 +22,47 @@ const App: React.FC = () => {
   const [activeFilter, setActiveFilter] = useState('All');
   const [imageViewerState, setImageViewerState] = useState<{ images: string[], startIndex: number, name: string } | null>(null);
   
+  // API Key State
+  const [apiKeyVerified, setApiKeyVerified] = useState<boolean>(false);
+  const [checkingKey, setCheckingKey] = useState<boolean>(true);
+  
+  // Check for API Key on mount
+  useEffect(() => {
+    const checkKey = async () => {
+        // 1. Check if process.env.API_KEY is already populated (e.g. build time or previous selection)
+        if (process.env.API_KEY) {
+            setApiKeyVerified(true);
+            setCheckingKey(false);
+            return;
+        }
+
+        // 2. Check via AI Studio environment if available
+        if ((window as any).aistudio && (window as any).aistudio.hasSelectedApiKey) {
+            const hasKey = await (window as any).aistudio.hasSelectedApiKey();
+            setApiKeyVerified(hasKey);
+        } else {
+             // If we are not in the AI Studio environment and process.env is missing, 
+             // we assume the user is handling env vars manually or it will fail later.
+             // We default to true here to avoid blocking local dev that might not have window.aistudio.
+             setApiKeyVerified(true);
+        }
+        setCheckingKey(false);
+    };
+    checkKey();
+  }, []);
+
+  const handleSelectKey = async () => {
+      if ((window as any).aistudio) {
+          try {
+            await (window as any).aistudio.openSelectKey();
+            // Assume success after closing dialog to handle race conditions
+            setApiKeyVerified(true);
+          } catch (e) {
+              console.error("Failed to select key", e);
+          }
+      }
+  };
+
   useEffect(() => {
     const savedSession = localStorage.getItem('userSession');
     if (savedSession) {
@@ -52,9 +94,6 @@ const App: React.FC = () => {
   
   const handleLogin = async (username: string, password: string) => {
     // --- MOCK AUTHENTICATION ---
-    // In a real application, this would be a secure API call to a backend server.
-    // For demonstration purposes, we are using hardcoded credentials.
-    // DO NOT use this approach in production.
     const validUsers = [
       { username: 'Val', password: 'TPSInventory' },
       { username: 'Cort', password: 'TPSInventory' },
@@ -65,11 +104,10 @@ const App: React.FC = () => {
     );
 
     if (foundUser) {
-      const session: UserSession = { username: foundUser.username }; // Use correct casing for display
+      const session: UserSession = { username: foundUser.username };
       localStorage.setItem('userSession', JSON.stringify(session));
       setUserSession(session);
     } else {
-      // Simulate a network delay
       await new Promise(resolve => setTimeout(resolve, 500));
       throw new Error('Invalid username or password.');
     }
@@ -78,7 +116,7 @@ const App: React.FC = () => {
   const handleLogout = () => {
     localStorage.removeItem('userSession');
     setUserSession(null);
-    setInventory([]); // Clear inventory on logout
+    setInventory([]);
   }
 
   const handleAddItem = async (item: Item) => {
@@ -127,7 +165,7 @@ const App: React.FC = () => {
         setInventory(newInventory);
         await deleteItem(itemToDelete.airtableId);
       } catch (err: any) {
-        setInventory(originalInventory); // Revert optimistic update
+        setInventory(originalInventory);
         setError(err.message || "Failed to delete item. Please try again.");
       }
     } else if (itemToDelete && !itemToDelete.airtableId) {
@@ -147,7 +185,7 @@ const App: React.FC = () => {
   const handleCancelForm = () => {
     setCurrentView('dashboard');
     setEditingItem(null);
-    setError(null); // Clear errors when cancelling
+    setError(null);
   }
   
   const handleViewItemImages = (item: Item, startIndex: number = 0) => {
@@ -163,7 +201,6 @@ const App: React.FC = () => {
   const filteredItems = useMemo(() => {
     if (!inventory) return [];
     
-    // 1. Filter by the active category/flag
     let categoryFilteredItems = inventory;
     if (activeFilter === 'Flagged') {
         categoryFilteredItems = inventory.filter(item => item.flagged);
@@ -171,7 +208,6 @@ const App: React.FC = () => {
         categoryFilteredItems = inventory.filter(item => item.category === activeFilter);
     }
 
-    // 2. Then, filter by the search term
     const lowercasedFilter = searchTerm.toLowerCase();
     if (!lowercasedFilter) return categoryFilteredItems;
 
@@ -186,7 +222,7 @@ const App: React.FC = () => {
         item.flaws,
         item.size,
         item.sku,
-      ].filter(Boolean); // Filter out null/undefined/empty strings
+      ].filter(Boolean);
 
       if (searchableStrings.some(s => s.toLowerCase().includes(lowercasedFilter))) {
         return true;
@@ -205,10 +241,47 @@ const App: React.FC = () => {
     });
   }, [inventory, searchTerm, activeFilter]);
   
+  // RENDER LOADING FOR API KEY
+  if (checkingKey) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-900">
+             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        </div>
+      );
+  }
+
+  // RENDER API KEY SELECTION SCREEN
+  if (!apiKeyVerified && (window as any).aistudio) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-900 p-4">
+            <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-xl max-w-md w-full text-center space-y-6">
+                <div className="mx-auto bg-blue-100 dark:bg-blue-900/30 w-16 h-16 rounded-full flex items-center justify-center">
+                    <InfoIcon className="w-8 h-8 text-blue-600 dark:text-blue-400" />
+                </div>
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white">API Key Required</h2>
+                <p className="text-slate-600 dark:text-slate-300">
+                    To use the advanced Visual Search and AI features, you must select a Google Cloud API Key with billing enabled.
+                </p>
+                <div className="text-sm text-slate-500 dark:text-slate-400">
+                    <p>Please refer to the <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">billing documentation</a> for details.</p>
+                </div>
+                <button
+                    onClick={handleSelectKey}
+                    className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-md transition-all transform hover:scale-105"
+                >
+                    Connect API Key
+                </button>
+            </div>
+        </div>
+      );
+  }
+
+  // RENDER LOGIN
   if (!userSession) {
       return <Login onLogin={handleLogin} />;
   }
 
+  // RENDER MAIN APP
   return (
     <div className="min-h-screen p-4 sm:p-6 lg:p-10 flex flex-col items-center justify-between">
       <div className="w-full space-y-8 flex flex-col items-center">
