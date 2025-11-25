@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Item } from '../types';
-import { generateTags, identifyItem } from '../services/geminiService';
+import { generateTags, identifyItem, AutoIdentifiedItem } from '../services/geminiService';
 import { uploadImage } from '../services/airtableService';
-import { CameraIcon, SpinnerIcon, TagIcon, TrashIcon, CloseIcon, InfoIcon, EyeIcon } from './icons';
+import { CameraIcon, SpinnerIcon, TagIcon, TrashIcon, CloseIcon, InfoIcon, EyeIcon, SearchIcon } from './icons';
 
 interface ItemFormProps {
   itemToEdit?: Item | null;
@@ -50,14 +50,17 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
   const [tagError, setTagError] = useState('');
   const [imageError, setImageError] = useState<string | null>(null);
   const [newTag, setNewTag] = useState('');
+  const [searchLinks, setSearchLinks] = useState<{ title: string; url: string }[] | undefined>(undefined);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (itemToEdit) {
       setItem(itemToEdit);
+      setSearchLinks(undefined); // Reset links on edit
     } else {
       setItem(emptyItem);
+      setSearchLinks(undefined);
     }
   }, [itemToEdit]);
 
@@ -76,6 +79,7 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
           const file = e.target.files[0];
           setImageError(null);
           setIsUploading(true);
+          setSearchLinks(undefined); // Reset links on new image
           try {
               const imageUrl = await uploadImage(file);
               setItem(prev => ({ ...prev, images: [imageUrl] }));
@@ -97,6 +101,7 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
   
   const handleRemoveImage = () => {
     setItem(prev => ({ ...prev, images: [] }));
+    setSearchLinks(undefined);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -153,6 +158,7 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
     }
     setIsIdentifying(true);
     setTagError('');
+    setSearchLinks(undefined);
     
     try {
         const response = await fetch(item.images[0]);
@@ -170,6 +176,10 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
             condition: data.condition || prev.condition,
             tags: Array.from(new Set([...(prev.tags || []), ...data.tags]))
         }));
+
+        if (data.searchLinks && data.searchLinks.length > 0) {
+            setSearchLinks(data.searchLinks);
+        }
         
     } catch (err: any) {
         setTagError(err.message || 'Failed to identify item.');
@@ -177,6 +187,14 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
         setIsIdentifying(false);
     }
   }, [item.images]);
+  
+  const handleGoogleLens = () => {
+    if (item.images && item.images.length > 0) {
+        // Use the modern Google Lens 'upload' URL endpoint which accepts a public image URL
+        const lensUrl = `https://lens.google.com/upload?url=${encodeURIComponent(item.images[0])}`;
+        window.open(lensUrl, '_blank');
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -263,23 +281,34 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
             {/* AI Identify Button */}
             <div className="flex-1 pt-2">
                  {item.images && item.images.length > 0 && (
-                    <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl border border-blue-100 dark:border-blue-800">
-                        <h4 className="font-semibold text-blue-900 dark:text-blue-200 text-sm mb-2">AI Auto-Fill</h4>
-                        <p className="text-xs text-blue-700 dark:text-blue-300 mb-3">
-                            Use Gemini to analyze your photo and automatically fill in the details. Works for modern products, <strong>antiques, art, and vintage collectibles.</strong>
-                        </p>
-                        <p className="text-xs text-blue-600 dark:text-blue-400 italic mb-3">
-                           💡 Tip: For manufactured items, capture the label. For art/antiques, capture the entire object clearly.
-                        </p>
-                        <button
-                            type="button"
-                            onClick={handleIdentifyItem}
-                            disabled={isIdentifying}
-                            className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-medium py-2 px-4 rounded-lg shadow-sm transition-all text-sm disabled:opacity-70 disabled:cursor-not-allowed"
-                        >
-                            {isIdentifying ? <SpinnerIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
-                            {isIdentifying ? 'Analyzing Image...' : '✨ Identify Item & Auto-Fill'}
-                        </button>
+                    <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl border border-blue-100 dark:border-blue-800 space-y-3">
+                        <div>
+                            <h4 className="font-semibold text-blue-900 dark:text-blue-200 text-sm mb-1">Google Visual Intelligence</h4>
+                            <p className="text-xs text-blue-700 dark:text-blue-300">
+                                Use AI to identify items, or perform a direct visual search on Google Lens.
+                            </p>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 gap-2">
+                            <button
+                                type="button"
+                                onClick={handleIdentifyItem}
+                                disabled={isIdentifying}
+                                className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg shadow-sm transition-all text-sm disabled:opacity-70 disabled:cursor-not-allowed"
+                            >
+                                {isIdentifying ? <SpinnerIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
+                                {isIdentifying ? 'Analyzing...' : 'Auto-Identify Item'}
+                            </button>
+                            
+                            <button
+                                type="button"
+                                onClick={handleGoogleLens}
+                                className="w-full flex items-center justify-center gap-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 font-medium py-2 px-4 rounded-lg shadow-sm hover:bg-slate-50 dark:hover:bg-slate-600 transition-all text-sm"
+                            >
+                                <SearchIcon className="w-4 h-4" />
+                                Search on Google Lens
+                            </button>
+                        </div>
                     </div>
                  )}
             </div>
@@ -294,6 +323,31 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
             capture="environment"
           />
         </div>
+
+        {/* Google Search Results / Sources */}
+        {searchLinks && searchLinks.length > 0 && (
+            <div className="bg-slate-50 dark:bg-slate-700/50 p-4 rounded-lg border border-slate-200 dark:border-slate-600">
+                <h4 className="text-sm font-semibold text-slate-900 dark:text-white mb-2 flex items-center gap-2">
+                    <InfoIcon className="w-4 h-4 text-blue-500" />
+                    Reference Matches Found:
+                </h4>
+                <ul className="space-y-1">
+                    {searchLinks.map((link, idx) => (
+                        <li key={idx} className="text-xs truncate">
+                            <a 
+                                href={link.url} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
+                            >
+                                <span>🔗</span> {link.title || link.url}
+                            </a>
+                        </li>
+                    ))}
+                </ul>
+                <p className="text-[10px] text-slate-400 mt-2">Use these links to verify the item details or price.</p>
+            </div>
+        )}
 
         {/* Main Details Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-6">
