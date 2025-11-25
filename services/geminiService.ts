@@ -152,12 +152,11 @@ export const identifyItem = async (imageFile: File): Promise<AutoIdentifiedItem>
     `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview', // Strongest model for visual reasoning
+      model: 'gemini-2.5-flash', // Reverted to Flash for reliability and speed with Tools
       contents: { parts: [imagePart, { text: prompt }] },
       config: {
         tools: [{ googleSearch: {} }], 
-        // 10k token budget to allow for detailed "Visual Fingerprinting" and search synthesis
-        thinkingConfig: { thinkingBudget: 10240 }, 
+        // Note: responseMimeType is intentionally omitted as it conflicts with googleSearch tool use
       }
     });
 
@@ -200,8 +199,9 @@ export const identifyItem = async (imageFile: File): Promise<AutoIdentifiedItem>
 
     return data;
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error identifying item:", error);
-    throw new Error("Failed to get AI Overview. Please try again.");
+    // Pass the actual error message up to the UI
+    throw new Error(error.message || "Failed to get AI Overview. Please try again.");
   }
 };
