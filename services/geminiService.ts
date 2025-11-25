@@ -94,6 +94,7 @@ export interface AutoIdentifiedItem {
   category: string;
   tags: string[];
   condition: string;
+  price?: number;
   searchLinks?: { title: string; url: string }[];
 }
 
@@ -112,35 +113,37 @@ export const identifyItem = async (imageFile: File): Promise<AutoIdentifiedItem>
       },
     };
 
-    // Prompt optimized for "Antique Roadshow" + "Google Lens" style identification
+    // Prompt optimized to simulate Google Lens behavior and extract data
     const prompt = `
-      Act as an expert Visual Researcher and Antique Appraiser.
-      I am showing you a photo of an item.
+      You are an expert appraiser and visual search engine.
+      Your goal is to simulate "Google Lens" behavior inside this app to automatically fill a data entry form.
+
+      1. SEARCH: Use the 'googleSearch' tool to find this specific item online.
+         - Look for sold listings (eBay, 1stDibs, Chairish) to find accurate market data.
+         - Look for museum or catalog entries for antiques or art.
+         - If it is a generic item, find the most comparable listings.
       
-      YOUR TASK: Perform a simulated "Reverse Image Search" identification.
-      
-      PHASE 1: VISUAL DECONSTRUCTION & SEARCH STRATEGY
-      - Analyze the image visually (shape, color, material, pattern, text).
-      - Use the 'googleSearch' tool to find this specific visual match on the web.
-      - Search for "vintage [visual description] sold" or "antique [markings] price guide".
-      - Look for COMPATIBLE IMAGES in the search results to confirm your identification.
-      
-      PHASE 2: IDENTIFY & DESCRIBE
-      - Provide the most specific Name possible (Year + Brand + Pattern/Model).
-      - If it is a generic antique, identify the Style/Era (e.g., "Art Deco", "Mid-Century Modern").
-      - Describe it as if you are writing a listing for an online marketplace.
-      
-      OUTPUT FORMAT:
-      Return a SINGLE JSON object.
-      
+      2. IDENTIFY:
+         - Determine the exact Name/Title (Year, Brand, Model/Pattern).
+         - Identify the Maker/Artist.
+         - Estimate the current market Value/Price (average of found listings) as a number.
+
+      3. DESCRIBE:
+         - Write a professional description suitable for a sales listing.
+         - Include era, style, material, measurements (visual estimate), and key features.
+
+      RETURN JSON ONLY in this format:
       {
-        "name": "Specific Item Title",
-        "maker": "Maker/Brand (or 'Unmarked')",
-        "description": "Detailed visual description. Mention unique features like 'scalloped edges' or 'hand-painted details'.",
+        "name": "Item Title",
+        "maker": "Brand/Artist (or 'Unmarked')",
+        "description": "Detailed sales description...",
         "category": "Best fitting category",
-        "condition": "Visual estimate (e.g., Good, Vintage)",
-        "tags": ["visual_style", "material", "era", "specific_pattern"]
+        "condition": "Visual condition (e.g., 'Good Vintage Condition')",
+        "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"],
+        "price": 0.00
       }
+      
+      Note: 'price' must be a number (no currency symbols). If unknown, return null.
     `;
 
     const response = await ai.models.generateContent({

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Item } from '../types';
 import { generateTags, identifyItem, AutoIdentifiedItem } from '../services/geminiService';
 import { uploadImage } from '../services/airtableService';
-import { CameraIcon, SpinnerIcon, TagIcon, TrashIcon, CloseIcon, InfoIcon, EyeIcon, SearchIcon } from './icons';
+import { CameraIcon, SpinnerIcon, TagIcon, TrashIcon, CloseIcon, InfoIcon, EyeIcon } from './icons';
 
 interface ItemFormProps {
   itemToEdit?: Item | null;
@@ -174,6 +174,7 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
             description: data.description,
             category: data.category || 'Other',
             condition: data.condition || prev.condition,
+            price: data.price || prev.price, // Autofill price
             tags: Array.from(new Set([...(prev.tags || []), ...data.tags]))
         }));
 
@@ -188,13 +189,6 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
     }
   }, [item.images]);
   
-  const handleGoogleLens = () => {
-    if (item.images && item.images.length > 0) {
-        // Use the modern Google Lens 'upload' URL endpoint which accepts a public image URL
-        const lensUrl = `https://lens.google.com/upload?url=${encodeURIComponent(item.images[0])}`;
-        window.open(lensUrl, '_blank');
-    }
-  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -283,9 +277,9 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
                  {item.images && item.images.length > 0 && (
                     <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl border border-blue-100 dark:border-blue-800 space-y-3">
                         <div>
-                            <h4 className="font-semibold text-blue-900 dark:text-blue-200 text-sm mb-1">Google Visual Intelligence</h4>
+                            <h4 className="font-semibold text-blue-900 dark:text-blue-200 text-sm mb-1">AI Smart Scanner</h4>
                             <p className="text-xs text-blue-700 dark:text-blue-300">
-                                Use AI to identify items, or perform a direct visual search on Google Lens.
+                                Instantly identify this item, find comps, and fill in the details (including price) using Google's search technology.
                             </p>
                         </div>
                         
@@ -294,19 +288,10 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
                                 type="button"
                                 onClick={handleIdentifyItem}
                                 disabled={isIdentifying}
-                                className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg shadow-sm transition-all text-sm disabled:opacity-70 disabled:cursor-not-allowed"
+                                className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg shadow-sm transition-all text-sm disabled:opacity-70 disabled:cursor-not-allowed"
                             >
                                 {isIdentifying ? <SpinnerIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
-                                {isIdentifying ? 'Analyzing...' : 'Auto-Identify Item'}
-                            </button>
-                            
-                            <button
-                                type="button"
-                                onClick={handleGoogleLens}
-                                className="w-full flex items-center justify-center gap-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 font-medium py-2 px-4 rounded-lg shadow-sm hover:bg-slate-50 dark:hover:bg-slate-600 transition-all text-sm"
-                            >
-                                <SearchIcon className="w-4 h-4" />
-                                Search on Google Lens
+                                {isIdentifying ? 'Analyzing Item & Prices...' : 'Identify Item with AI'}
                             </button>
                         </div>
                     </div>
@@ -329,7 +314,7 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
             <div className="bg-slate-50 dark:bg-slate-700/50 p-4 rounded-lg border border-slate-200 dark:border-slate-600">
                 <h4 className="text-sm font-semibold text-slate-900 dark:text-white mb-2 flex items-center gap-2">
                     <InfoIcon className="w-4 h-4 text-blue-500" />
-                    Reference Matches Found:
+                    Matched References Found:
                 </h4>
                 <ul className="space-y-1">
                     {searchLinks.map((link, idx) => (
@@ -345,7 +330,7 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
                         </li>
                     ))}
                 </ul>
-                <p className="text-[10px] text-slate-400 mt-2">Use these links to verify the item details or price.</p>
+                <p className="text-[10px] text-slate-400 mt-2">These results were used to generate the item description and price.</p>
             </div>
         )}
 
