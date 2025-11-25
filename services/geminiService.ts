@@ -113,37 +113,43 @@ export const identifyItem = async (imageFile: File): Promise<AutoIdentifiedItem>
       },
     };
 
-    // Prompt optimized to simulate Google Lens behavior and extract data
+    // Prompt optimized to prioritize OCR (Reading Text) which is the "Secret Sauce" of Google Lens
     const prompt = `
-      You are an expert appraiser and visual search engine.
-      Your goal is to simulate "Google Lens" behavior inside this app to automatically fill a data entry form.
+      You are an expert inventory specialist with "Google Lens"-like capabilities.
+      Your task is to identify this item with high precision using the 'googleSearch' tool.
 
-      1. SEARCH: Use the 'googleSearch' tool to find this specific item online.
-         - Look for sold listings (eBay, 1stDibs, Chairish) to find accurate market data.
-         - Look for museum or catalog entries for antiques or art.
-         - If it is a generic item, find the most comparable listings.
+      CRITICAL PROCESS - DO NOT SKIP STEPS:
       
-      2. IDENTIFY:
-         - Determine the exact Name/Title (Year, Brand, Model/Pattern).
-         - Identify the Maker/Artist.
-         - Estimate the current market Value/Price (average of found listings) as a number.
+      1. **READ TEXT FIRST (OCR)**: 
+         - Scan the image for ANY text, numbers, model codes, serial numbers, or brand logos.
+         - If found, use these EXACT alphanumeric strings as your primary search queries. 
+         - *Example*: If you see "Sony KV-2000", search for that. Do not just search for "TV".
+         - This is how Google Lens works; it prioritizes specific identifiers over general shapes.
+      
+      2. **VISUAL ANALYSIS**: 
+         - If NO text is clear, perform a deep visual analysis.
+         - Identify the era (Art Deco, Mid-Century), material (Teak, Porcelain, Bakelite), and specific style.
+         - Use these detailed visual descriptors for your search.
 
-      3. DESCRIBE:
-         - Write a professional description suitable for a sales listing.
-         - Include era, style, material, measurements (visual estimate), and key features.
+      3. **MARKET RESEARCH**: 
+         - Use the search results to find "Sold" listings or catalog entries.
+         - Estimate the price based on current market value.
+
+      4. **FALLBACK**: 
+         - If search returns nothing, use your internal knowledge base to provide your best educated estimate for Name, Description, and Details. DO NOT return "Unknown" if you can guess.
 
       RETURN JSON ONLY in this format:
       {
-        "name": "Item Title",
+        "name": "Detailed Item Name (Brand + Model)",
         "maker": "Brand/Artist (or 'Unmarked')",
-        "description": "Detailed sales description...",
-        "category": "Best fitting category",
-        "condition": "Visual condition (e.g., 'Good Vintage Condition')",
+        "description": "Professional sales description including features, era, dimensions estimate, and condition notes.",
+        "category": "Apparel | Home Goods | Electronics | Collectibles | Other",
+        "condition": "Visual assessment (e.g. 'Good Vintage Condition')",
         "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"],
         "price": 0.00
       }
       
-      Note: 'price' must be a number (no currency symbols). If unknown, return null.
+      Note: 'price' must be a number (no currency symbols). If absolutely unknown, return null.
     `;
 
     const response = await ai.models.generateContent({
