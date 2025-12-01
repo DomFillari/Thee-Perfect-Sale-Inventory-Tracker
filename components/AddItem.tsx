@@ -36,15 +36,9 @@ const emptyItem: Omit<Item, 'id' | 'sku' | 'airtableId'> = {
   flagged: false,
 };
 
-
-const dataUrlToFile = async (dataUrl: string, filename: string): Promise<File> => {
-    const res = await fetch(dataUrl);
-    const blob = await res.blob();
-    return new File([blob], filename, { type: blob.type });
-}
-
 const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpdated, onCancel, isSaving, error }) => {
   const [item, setItem] = useState<Partial<Item>>(itemToEdit || emptyItem);
+  const [localImageFile, setLocalImageFile] = useState<File | null>(null);
   const [isTagging, setIsTagging] = useState(false);
   const [isIdentifying, setIsIdentifying] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -58,10 +52,12 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
   useEffect(() => {
     if (itemToEdit) {
       setItem(itemToEdit);
-      setSearchLinks(undefined); // Reset links on edit
+      setSearchLinks(undefined);
+      setLocalImageFile(null);
     } else {
       setItem(emptyItem);
       setSearchLinks(undefined);
+      setLocalImageFile(null);
     }
   }, [itemToEdit]);
 
@@ -78,15 +74,26 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
   const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.files && e.target.files[0]) {
           const file = e.target.files[0];
+          
+          // 1. Store local file immediately for AI use (Bypasses network errors)
+          setLocalImageFile(file);
           setImageError(null);
+          setSearchLinks(undefined);
+
+          // 2. Create local preview URL immediately (UI feels instant)
+          const objectUrl = URL.createObjectURL(file);
+          setItem(prev => ({ ...prev, images: [objectUrl] }));
+          
+          // 3. Attempt Upload in Background
           setIsUploading(true);
-          setSearchLinks(undefined); // Reset links on new image
           try {
               const imageUrl = await uploadImage(file);
+              // Only update with remote URL if upload succeeds
               setItem(prev => ({ ...prev, images: [imageUrl] }));
           } catch (err: any) {
-              setImageError(err.message || "Failed to upload the image.");
               console.error("Image upload error:", err);
+              // We do NOT clear the image. We let them proceed with the local preview.
+              setImageError("Hosting upload failed. You can still scan and save, but the image link may not persist.");
           } finally {
               setIsUploading(false);
                if (fileInputRef.current) {
@@ -102,7 +109,9 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
   
   const handleRemoveImage = () => {
     setItem(prev => ({ ...prev, images: [] }));
+    setLocalImageFile(null);
     setSearchLinks(undefined);
+    setImageError(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -128,7 +137,7 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
   };
 
   const handleGenerateTags = useCallback(async () => {
-    if (!item.images || !item.images.length) {
+    if ((!item.images || !item.images.length) && !localImageFile) {
       setTagError("Please add an image first to generate tags.");
       return;
     }
@@ -136,10 +145,16 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
     setTagError('');
     try {
       const { name = '', maker = '', category = '', description = '' } = item;
-      // The image is now a URL, so we need to fetch it to pass it to Gemini
-      const response = await fetch(item.images[0]);
-      const blob = await response.blob();
-      const imageToAnalyze = new File([blob], 'item-image.jpg', { type: blob.type });
+      
+      let imageToAnalyze: File;
+      if (localImageFile) {
+          imageToAnalyze = localImageFile;
+      } else {
+          // Fallback for existing items
+          const response = await fetch(item.images![0]);
+          const blob = await response.blob();
+          imageToAnalyze = new File([blob], 'item-image.jpg', { type: blob.type });
+      }
       
       const newTags = await generateTags(imageToAnalyze, name, maker, category, description);
       const currentTags = item.tags || [];
@@ -150,29 +165,45 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
     } finally {
       setIsTagging(false);
     }
-  }, [item]);
+  }, [item, localImageFile]);
 
   const handleIdentifyItem = useCallback(async () => {
-    if (!item.images || !item.images.length) {
+    // We can identify if we have a local file OR a remote URL
+    if (!localImageFile && (!item.images || !item.images.length)) {
         setTagError("Please upload an image first.");
         return;
     }
+    
     setIsIdentifying(true);
     setTagError('');
     setSearchLinks(undefined);
     
     try {
-        const response = await fetch(item.images[0]);
-        const blob = await response.blob();
-        const imageFile = new File([blob], 'item-to-identify.jpg', { type: blob.type });
+        let imageToAnalyze: File;
+
+        if (localImageFile) {
+            // BEST PATH: Use local file. Fast, no CORS issues.
+            imageToAnalyze = localImageFile;
+        } else {
+            // EDIT PATH: Fetch remote image to analyze
+            // This might fail if the hosting provider blocks CORS, but necessary for existing items.
+            try {
+                const response = await fetch(item.images![0]);
+                if (!response.ok) throw new Error("Failed to download existing image for analysis.");
+                const blob = await response.blob();
+                imageToAnalyze = new File([blob], 'item-to-identify.jpg', { type: blob.type });
+            } catch (e) {
+                throw new Error("Could not access image for analysis. Try re-uploading the photo.");
+            }
+        }
         
-        const data = await identifyItem(imageFile);
+        const data = await identifyItem(imageToAnalyze);
         
         setItem(prev => ({
             ...prev,
             name: data.name,
-            maker: data.maker || prev.maker, // Keep existing if AI returns null/empty
-            description: data.description, // This now contains the "AI Overview"
+            maker: data.maker || prev.maker, 
+            description: data.description, 
             category: data.category || 'Other',
             condition: data.condition || prev.condition,
             price: data.price || prev.price, 
@@ -188,7 +219,7 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
     } finally {
         setIsIdentifying(false);
     }
-  }, [item.images]);
+  }, [item.images, localImageFile]);
   
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -237,17 +268,25 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
         <div className="space-y-4">
           <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Primary Image</label>
           {imageError && (
-            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative text-sm" role="alert">
-                <p><strong className="font-bold">Image Error: </strong> {imageError}</p>
+            <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-lg relative text-sm flex items-start gap-2" role="alert">
+                <InfoIcon className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold">Upload Warning</p>
+                  <p>{imageError}</p>
+                </div>
             </div>
           )}
           
           <div className="flex flex-col sm:flex-row gap-4 items-start">
             <div className="w-full sm:w-1/3">
                 {isUploading ? (
-                    <div className="flex flex-col items-center justify-center aspect-square w-full border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg text-slate-500 dark:text-slate-400">
-                        <SpinnerIcon className="w-8 h-8" />
-                        <span className="text-xs mt-2">Uploading...</span>
+                   <div className="relative group aspect-square">
+                        {/* Show local preview while uploading */}
+                        <img src={item.images?.[0]} alt="Uploading preview" className="w-full h-full object-cover rounded-lg shadow-md opacity-50" />
+                        <div className="absolute inset-0 flex flex-col items-center justify-center">
+                            <SpinnerIcon className="w-8 h-8 text-blue-600" />
+                            <span className="text-xs mt-2 font-semibold text-blue-800 bg-white/80 px-2 py-1 rounded">Uploading...</span>
+                        </div>
                     </div>
                 ) : item.images && item.images.length > 0 ? (
                     <div className="relative group aspect-square">
@@ -275,7 +314,7 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
             
             {/* AI Identify Button */}
             <div className="flex-1 pt-2">
-                 {item.images && item.images.length > 0 && (
+                 {(item.images?.length > 0 || localImageFile) && (
                     <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl border border-blue-100 dark:border-blue-800 space-y-3">
                         <div>
                             <h4 className="font-semibold text-blue-900 dark:text-blue-200 text-sm mb-1">Search & Identify</h4>
@@ -390,7 +429,7 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
                 <button
                     type="button"
                     onClick={handleGenerateTags}
-                    disabled={isTagging || !item.images?.length}
+                    disabled={isTagging || (!item.images?.length && !localImageFile)}
                     className="flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-blue-100 text-blue-800 hover:bg-blue-200 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900 transition"
                 >
                     {isTagging ? <SpinnerIcon className="w-5 h-5" /> : <TagIcon className="w-5 h-5" />}
