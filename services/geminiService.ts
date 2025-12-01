@@ -126,29 +126,22 @@ export const identifyItem = async (imageFile: File): Promise<AutoIdentifiedItem>
     const prompt = `
       You are an advanced Visual Search Engine. Your goal is to replicate the behavior of a Reverse Image Search using visual analysis.
       
-      PHASE 1: VISUAL FINGERPRINTING (Internal Thought Process)
-      1.  Scan the image for ANY text, logos, or serial numbers. If found, these are your primary search keys.
-      2.  If NO text is found, construct a "Visual Fingerprint" description.
-          *   Describe unique shapes (e.g., "bulbous bottom, long neck").
-          *   Describe materials/textures (e.g., "hammered copper", "crackled glaze").
-          *   Describe artistic styles (e.g., "Art Deco geometric", "Victorian floral").
-          *   Describe distinct markings (e.g., "blue crossed swords mark").
+      STEP 1: VISUAL ANALYSIS & SEARCH (Perform this internally)
+      - Scan for text/logos. If none, build a visual description (shape, color, material).
+      - Use 'googleSearch' to find market data and sold listings for this item.
       
-      PHASE 2: REVERSE SEARCH EXECUTION
-      1.  Use the 'googleSearch' tool. 
-      2.  Construct a search query that combines your Visual Fingerprint with terms like "sold price", "vintage", "antique", "value", or "maker".
-          *   Example Query: "vintage green glass vase bubbles base pontil mark value"
-          *   Example Query: "antique bronze sculpture dancer signed DH chiparus"
-      3.  Look for "Sold Listings" or "Collector Guides" to identify the exact item.
-      
-      PHASE 3: AI OVERVIEW GENERATION
-      1.  Identify the item specifically.
-      2.  Write a "Google Lens Style" AI Overview in the 'description' field.
-          *   Start with "AI Overview: ".
-          *   Summarize the Item, Era, Maker, and Collectibility.
-      3.  Estimate the price based on the search results.
+      STEP 2: GENERATE RESPONSE
+      - Identify the item name, maker, and category.
+      - Write a detailed "AI Overview" description summarizing the item's history/value.
+      - Estimate price.
 
-      RETURN JSON ONLY:
+      CRITICAL OUTPUT RULES:
+      - Output ONLY a valid JSON object.
+      - Do NOT output any conversational text, "Phase" headers, or markdown formatting (like \`\`\`json).
+      - Escape all double quotes within strings (e.g., "The \\"quoted\\" word").
+      - Do not use newlines inside string values.
+
+      JSON STRUCTURE:
       {
         "name": "Specific Title (e.g. 'Fenton Hobnail Milk Glass Vase')",
         "maker": "Maker Name (or 'Unmarked [Style]')",
@@ -173,6 +166,7 @@ export const identifyItem = async (imageFile: File): Promise<AutoIdentifiedItem>
     if (!responseText) throw new Error("No response from AI");
 
     // Robust JSON extraction
+    // Find the first '{' that is followed eventually by '}'
     const jsonStart = responseText.indexOf('{');
     const jsonEnd = responseText.lastIndexOf('}');
     
@@ -181,13 +175,20 @@ export const identifyItem = async (imageFile: File): Promise<AutoIdentifiedItem>
         throw new Error("AI could not generate the Overview.");
     }
 
-    const jsonString = responseText.substring(jsonStart, jsonEnd + 1);
+    // Extract JSON and sanitize it
+    let jsonString = responseText.substring(jsonStart, jsonEnd + 1);
+    
+    // Sanitize: Replace newlines inside the JSON string with spaces. 
+    // This helps prevents parsing errors if the AI puts newlines inside description strings.
+    // We strictly assume standard JSON format where real newlines are not structural outside of strings (and are ignored).
+    jsonString = jsonString.replace(/[\n\r]/g, " ");
 
     let data: AutoIdentifiedItem;
     try {
         data = JSON.parse(jsonString) as AutoIdentifiedItem;
     } catch (e) {
         console.error("JSON Parse Error", e);
+        console.error("Bad JSON String:", jsonString);
         throw new Error("Failed to parse AI Overview.");
     }
 
