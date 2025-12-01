@@ -104,11 +104,11 @@ export interface AutoIdentifiedItem {
 
 export const identifyItem = async (imageFile: File): Promise<AutoIdentifiedItem> => {
   try {
-    // Use the provided key directly if the environment variable is missing
+    // Use the provided key directly as fallback
     const apiKey = process.env.API_KEY || "AIzaSyAXRI1WaQ1m2JZ1g0uHSfr--rZ1955IzOk";
 
     if (!apiKey) {
-        throw new Error("API Key not found.");
+        throw new Error("API Key not found. Please check your configuration.");
     }
 
     const ai = new GoogleGenAI({ apiKey });
@@ -122,34 +122,44 @@ export const identifyItem = async (imageFile: File): Promise<AutoIdentifiedItem>
       },
     };
 
-    // The Ultimate "Reverse Image Search" Simulation Prompt
+    // The Forensic Appraiser Prompt - Tuned for "Lens-like" Accuracy
     const prompt = `
-      You are an advanced Visual Search Engine. Your goal is to replicate the behavior of a Reverse Image Search using visual analysis.
-      
-      STEP 1: VISUAL ANALYSIS & SEARCH (Perform this internally)
-      - Scan for text/logos. If none, build a visual description (shape, color, material).
-      - Use 'googleSearch' to find market data and sold listings for this item.
-      
-      STEP 2: GENERATE RESPONSE
-      - Identify the item name, maker, and category.
-      - Write a detailed "AI Overview" description summarizing the item's history/value.
-      - Estimate price.
+      Act as a Forensic Resale Appraiser. Your goal is to identify this item with extreme precision, utilizing the Google Search tool.
 
-      CRITICAL OUTPUT RULES:
-      - Output ONLY a valid JSON object.
-      - Do NOT output any conversational text, "Phase" headers, or markdown formatting (like \`\`\`json).
-      - Escape all double quotes within strings (e.g., "The \\"quoted\\" word").
-      - Do not use newlines inside string values.
+      PHASE 1: FORENSIC SCAN (Internal Thought Process)
+      1. OCR extraction: Read EVERY visible letter, number, brand name, or serial code on the object. 
+         - If text is found (e.g. "Nike", "Pyrex 404", "Patagonia"), you MUST include it in your search query.
+      2. Visual Profiling: If no text is visible, identify the EXACT visual features:
+         - Shape (e.g. "trumpet vase", "chelsea boot")
+         - Material/Texture (e.g. "hobnail glass", "suede", "cast iron")
+         - Pattern/Era (e.g. "Art Deco", "Mid-Century Modern", "Floral Chintz")
 
-      JSON STRUCTURE:
+      PHASE 2: TARGETED SEARCH
+      - Execute a Google Search using the extracted text or specific visual profile.
+      - Prioritize "Sold" listings on eBay, Poshmark, Mercari, or 1stDibs to find the exact used/vintage match.
+      - Look for the specific model name or pattern name.
+
+      PHASE 3: REPORT GENERATION (Strict JSON)
+      - "name": The precise title (e.g. "Vintage Fenton Hobnail Milk Glass Vase 6-inch").
+      - "maker": The brand or artist.
+      - "description": A "Google Lens" style AI Overview. Write 3-4 professional sentences describing what the item is, its likely era/origin, and key value features. Do not use conversational filler.
+      - "price": An estimated market value (number only) based on comparable sold listings.
+      - "tags": 5-8 specific keywords (e.g. "vintage", "milk glass", "fenton", "decor").
+
+      OUTPUT RULES:
+      - Return ONLY raw JSON. No markdown blocks (\`\`\`json).
+      - Escape all double quotes inside strings (e.g. "12\\" ruler").
+      - Do not include any text before or after the JSON object.
+      
+      JSON TEMPLATE:
       {
-        "name": "Specific Title (e.g. 'Fenton Hobnail Milk Glass Vase')",
-        "maker": "Maker Name (or 'Unmarked [Style]')",
-        "description": "AI Overview: [Your detailed 3-5 sentence summary derived from the search results. Explain what it is and its value context.]",
-        "category": "Home Goods | Collectibles | Art | Other",
-        "condition": "Visual Assessment (e.g. 'Vintage - Good')",
-        "tags": ["tag1", "tag2", "material", "style", "era", "color"],
-        "price": 0.00 (Estimated market value)
+        "name": "String",
+        "maker": "String",
+        "description": "String",
+        "category": "String (Home Goods|Apparel|Electronics|Collectibles|Other)",
+        "condition": "String (Good|Vintage|New)",
+        "tags": ["String"],
+        "price": Number
       }
     `;
 
@@ -157,42 +167,47 @@ export const identifyItem = async (imageFile: File): Promise<AutoIdentifiedItem>
       model: 'gemini-2.5-flash', 
       contents: { parts: [imagePart, { text: prompt }] },
       config: {
-        tools: [{ googleSearch: {} }], 
-        // Note: responseMimeType is intentionally omitted as it conflicts with googleSearch tool use
+        tools: [{ googleSearch: {} }],
+        // responseMimeType omitted to allow tool use
       }
     });
 
     const responseText = response.text?.trim();
-    if (!responseText) throw new Error("No response from AI");
+    if (!responseText) throw new Error("AI returned empty response.");
 
-    // Robust JSON extraction
-    // Find the first '{' that is followed eventually by '}'
+    console.log("AI Raw Response:", responseText);
+
+    // Robust JSON Extraction
     const jsonStart = responseText.indexOf('{');
     const jsonEnd = responseText.lastIndexOf('}');
     
     if (jsonStart === -1 || jsonEnd === -1) {
-        console.error("Invalid AI Output:", responseText);
-        throw new Error("AI could not generate the Overview.");
+        throw new Error("AI failed to generate a structured report.");
     }
 
-    // Extract JSON and sanitize it
     let jsonString = responseText.substring(jsonStart, jsonEnd + 1);
     
-    // Sanitize: Replace newlines inside the JSON string with spaces. 
-    // This helps prevents parsing errors if the AI puts newlines inside description strings.
-    // We strictly assume standard JSON format where real newlines are not structural outside of strings (and are ignored).
-    jsonString = jsonString.replace(/[\n\r]/g, " ");
+    // Aggressive sanitization to prevent parse errors
+    jsonString = jsonString
+        .replace(/[\n\r]/g, " ") // Remove line breaks
+        .replace(/,\s*}/g, "}"); // Remove trailing commas
 
     let data: AutoIdentifiedItem;
     try {
         data = JSON.parse(jsonString) as AutoIdentifiedItem;
     } catch (e) {
-        console.error("JSON Parse Error", e);
-        console.error("Bad JSON String:", jsonString);
-        throw new Error("Failed to parse AI Overview.");
+        console.error("JSON Parse Error:", e);
+        // Fallback: Try to clean unescaped quotes if simple parse fails
+        // This is a naive attempt to save broken JSON
+        try {
+            const fixedJson = jsonString.replace(/(?<!\\)"/g, '\\"').replace(/\\"{/g, '{').replace(/}\\"/g, '}').replace(/\\":/g, '":').replace(/,\\"/g, ',"');
+            data = JSON.parse(fixedJson);
+        } catch (e2) {
+             throw new Error("Failed to parse AI Overview. The item might be too obscure.");
+        }
     }
 
-    // Extract Search Links for "Sources"
+    // Extract Search Links
     const candidates = response.candidates;
     const chunks = candidates?.[0]?.groundingMetadata?.groundingChunks;
 
@@ -211,7 +226,6 @@ export const identifyItem = async (imageFile: File): Promise<AutoIdentifiedItem>
 
   } catch (error: any) {
     console.error("Error identifying item:", error);
-    // Pass the actual error message up to the UI
-    throw new Error(error.message || "Failed to get AI Overview. Please try again.");
+    throw new Error(error.message || "Identification failed. Please try again.");
   }
 };
