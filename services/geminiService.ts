@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 
 const fileToBase64 = (file: File): Promise<string> =>
@@ -20,10 +21,13 @@ export const generateTags = async (
   description: string
 ): Promise<string[]> => {
   try {
-    if (!process.env.API_KEY) {
-      throw new Error("API_KEY environment variable not set");
+    // Read the key at the moment of execution to ensure we get the latest value from Secrets
+    const apiKey = process.env.API_KEY;
+    
+    if (!apiKey) {
+        throw new Error("API Key not found. Please click the 'Key' icon in the sidebar and add a secret named 'API_KEY'.");
     }
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey });
 
     const imageBase64 = await fileToBase64(imageFile);
 
@@ -71,7 +75,7 @@ export const generateTags = async (
         if (fallbackTags.length > 0) {
             return fallbackTags;
         }
-        throw new Error("Received an invalid response from the AI tag generator.");
+        return [];
       }
     }
     
@@ -81,9 +85,9 @@ export const generateTags = async (
     
     return [];
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error generating tags:", error);
-    throw new Error("Failed to generate tags. Please check the console for more details.");
+    throw new Error(error.message || "Failed to generate tags. Check console.");
   }
 };
 
@@ -100,10 +104,15 @@ export interface AutoIdentifiedItem {
 
 export const identifyItem = async (imageFile: File): Promise<AutoIdentifiedItem> => {
   try {
-    if (!process.env.API_KEY) {
-      throw new Error("API_KEY environment variable not set");
+    // Read the key at the moment of execution to ensure we get the latest value from Secrets
+    const apiKey = process.env.API_KEY;
+
+    if (!apiKey) {
+        throw new Error("API Key not found. Please click the 'Key' icon in the sidebar and add a secret named 'API_KEY'.");
     }
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+    const ai = new GoogleGenAI({ apiKey });
+    
     const imageBase64 = await fileToBase64(imageFile);
 
     const imagePart = {
@@ -152,7 +161,7 @@ export const identifyItem = async (imageFile: File): Promise<AutoIdentifiedItem>
     `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash', // Reverted to Flash for reliability and speed with Tools
+      model: 'gemini-2.5-flash', 
       contents: { parts: [imagePart, { text: prompt }] },
       config: {
         tools: [{ googleSearch: {} }], 

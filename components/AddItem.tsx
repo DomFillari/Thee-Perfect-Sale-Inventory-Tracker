@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Item } from '../types';
 import { generateTags, identifyItem, AutoIdentifiedItem } from '../services/geminiService';
@@ -431,79 +432,65 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
                 <input type="text" name="size" id="size" value={item.size || ''} onChange={handleChange} className={`mt-1 ${inputStyle}`} />
             </div>
              <div className="md:col-span-2">
-                <label htmlFor="flaws" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Known Flaws</label>
-                <input type="text" name="flaws" id="flaws" value={item.flaws || ''} onChange={handleChange} className={`mt-1 ${inputStyle}`} placeholder="e.g., small scratch on corner" />
+                <label className="flex items-center space-x-2 cursor-pointer">
+                    <input type="checkbox" name="shippable" checked={item.shippable} onChange={handleCheckboxChange} className={checkboxStyle} />
+                    <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Shippable</span>
+                </label>
+                {item.shippable && (
+                   <div className="mt-2 animate-fade-in">
+                       <label htmlFor="weight" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Weight (lbs)</label>
+                       <input type="number" name="weight" id="weight" value={item.weight ?? ''} onChange={handleChange} className={`mt-1 ${inputStyle} w-1/2`} placeholder="0.0" step="0.1" />
+                   </div>
+                )}
             </div>
-        </div>
 
-        {/* Checkboxes */}
-        <div className="space-y-4">
-            <div className="relative flex items-start">
-                <div className="flex h-6 items-center">
-                    <input id="consigned" name="consigned" type="checkbox" checked={item.consigned || false} onChange={handleCheckboxChange} className={checkboxStyle} />
+            <div className="md:col-span-2 space-y-4 pt-4 border-t border-slate-200 dark:border-slate-700">
+                <div className="flex gap-4 flex-wrap">
+                    <label className="flex items-center space-x-2 cursor-pointer">
+                        <input type="checkbox" name="consigned" checked={item.consigned} onChange={handleCheckboxChange} className={checkboxStyle} />
+                        <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Consigned Item</span>
+                    </label>
+                     <label className="flex items-center space-x-2 cursor-pointer">
+                        <input type="checkbox" name="listed" checked={item.listed} onChange={handleCheckboxChange} className={checkboxStyle} />
+                        <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Listed Online</span>
+                    </label>
+                     <label className="flex items-center space-x-2 cursor-pointer">
+                        <input type="checkbox" name="flagged" checked={item.flagged} onChange={handleCheckboxChange} className={`${checkboxStyle} text-red-600 focus:ring-red-600`} />
+                        <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Flagged (Needs Attention)</span>
+                    </label>
                 </div>
-                <div className="ml-3 text-sm leading-6">
-                    <label htmlFor="consigned" className="font-medium text-slate-900 dark:text-white">Consignment Item</label>
-                    <p className="text-slate-500 dark:text-slate-400">Is this item being sold on behalf of someone else?</p>
-                </div>
-            </div>
-             {item.consigned && (
-                 <div className="pl-9">
-                    <label htmlFor="consignee" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Consignee Name</label>
-                    <input type="text" name="consignee" id="consignee" value={item.consignee || ''} onChange={handleChange} className={`mt-1 ${inputStyle}`} />
-                </div>
-            )}
-             <div className="relative flex items-start">
-                <div className="flex h-6 items-center">
-                    <input id="shippable" name="shippable" type="checkbox" checked={item.shippable || false} onChange={handleCheckboxChange} className={checkboxStyle} />
-                </div>
-                <div className="ml-3 text-sm leading-6">
-                    <label htmlFor="shippable" className="font-medium text-slate-900 dark:text-white">Shippable</label>
-                    <p className="text-slate-500 dark:text-slate-400">Is this item eligible for shipping?</p>
-                </div>
-            </div>
-            {item.shippable && (
-                 <div className="pl-9">
-                    <label htmlFor="weight" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Weight (lbs)</label>
-                     <div className="relative mt-1">
-                        <input type="number" name="weight" id="weight" value={item.weight ?? ''} onChange={handleChange} className={`pr-12 ${inputStyle}`} placeholder="0.0" step="0.1" />
-                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3">
-                            <span className="text-slate-500 sm:text-sm">lbs</span>
-                        </div>
+                
+                 {item.consigned && (
+                     <div className="animate-fade-in">
+                        <label htmlFor="consignee" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Consignee Name</label>
+                        <input type="text" name="consignee" id="consignee" value={item.consignee || ''} onChange={handleChange} className={`mt-1 ${inputStyle}`} />
                     </div>
-                </div>
-            )}
-            <div className="relative flex items-start">
-                <div className="flex h-6 items-center">
-                    <input id="listed" name="listed" type="checkbox" checked={item.listed || false} onChange={handleCheckboxChange} className={checkboxStyle} />
-                </div>
-                <div className="ml-3 text-sm leading-6">
-                    <label htmlFor="listed" className="font-medium text-slate-900 dark:text-white">Listed Online</label>
-                    <p className="text-slate-500 dark:text-slate-400">Has this item been listed on a marketplace?</p>
-                </div>
+                )}
             </div>
-            <div className="relative flex items-start">
-                <div className="flex h-6 items-center">
-                    <input id="flagged" name="flagged" type="checkbox" checked={item.flagged || false} onChange={handleCheckboxChange} className={checkboxStyle} />
-                </div>
-                <div className="ml-3 text-sm leading-6">
-                    <label htmlFor="flagged" className="font-medium text-slate-900 dark:text-white">Flag for Review</label>
-                    <p className="text-slate-500 dark:text-slate-400">Mark this item for a secondary review or special handling.</p>
-                </div>
+
+            <div className="md:col-span-2">
+                <label htmlFor="flaws" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Flaws / Notes</label>
+                <textarea name="flaws" id="flaws" rows={2} value={item.flaws || ''} onChange={handleChange} className={`mt-1 ${inputStyle}`}></textarea>
             </div>
         </div>
 
-        {/* Actions */}
-        <div className="flex justify-end gap-4 pt-4 border-t border-slate-200 dark:border-slate-700">
-            <button type="button" onClick={onCancel} className="px-6 py-2.5 text-sm font-semibold rounded-lg text-slate-700 bg-slate-100 hover:bg-slate-200 dark:text-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 transition">Cancel</button>
-            <button
-              type="submit"
-              disabled={isSaving || !canSubmit}
-              className="flex items-center justify-center gap-2 px-6 py-2.5 text-sm font-semibold rounded-lg text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed dark:disabled:bg-slate-600 transition"
-            >
-              {isSaving && <SpinnerIcon className="w-5 h-5" />}
-              {isSaving ? 'Saving...' : itemToEdit ? 'Update Item' : 'Save Item'}
-            </button>
+        {/* Action Buttons */}
+        <div className="flex justify-end gap-4 pt-6">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-6 py-2.5 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={!canSubmit || isSaving}
+            className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:bg-slate-400 disabled:cursor-not-allowed transition-all transform active:scale-95"
+          >
+            {isSaving && <SpinnerIcon className="w-5 h-5" />}
+            {isSaving ? 'Saving...' : itemToEdit ? 'Update Item' : 'Save Item'}
+          </button>
         </div>
       </form>
     </div>
