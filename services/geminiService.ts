@@ -21,11 +21,11 @@ export const generateTags = async (
   description: string
 ): Promise<string[]> => {
   try {
-    // Read the key at the moment of execution to ensure we get the latest value from Secrets
-    const apiKey = process.env.API_KEY;
+    // Use the provided key directly if the environment variable is missing
+    const apiKey = process.env.API_KEY || "AIzaSyAXRI1WaQ1m2JZ1g0uHSfr--rZ1955IzOk";
     
     if (!apiKey) {
-        throw new Error("API Key not found. Please click the 'Key' icon in the sidebar and add a secret named 'API_KEY'.");
+        throw new Error("API Key not found.");
     }
     const ai = new GoogleGenAI({ apiKey });
 
@@ -104,11 +104,11 @@ export interface AutoIdentifiedItem {
 
 export const identifyItem = async (imageFile: File): Promise<AutoIdentifiedItem> => {
   try {
-    // Read the key at the moment of execution to ensure we get the latest value from Secrets
-    const apiKey = process.env.API_KEY;
+    // Use the provided key directly if the environment variable is missing
+    const apiKey = process.env.API_KEY || "AIzaSyAXRI1WaQ1m2JZ1g0uHSfr--rZ1955IzOk";
 
     if (!apiKey) {
-        throw new Error("API Key not found. Please click the 'Key' icon in the sidebar and add a secret named 'API_KEY'.");
+        throw new Error("API Key not found.");
     }
 
     const ai = new GoogleGenAI({ apiKey });
