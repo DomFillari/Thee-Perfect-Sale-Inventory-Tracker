@@ -122,11 +122,14 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
   };
   
   const handleAddTag = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && newTag.trim() !== '') {
-      e.preventDefault();
+    // Allow 'Enter' or ',' (comma) to add a tag
+    if ((e.key === 'Enter' || e.key === ',') && newTag.trim() !== '') {
+      e.preventDefault(); // Prevent the comma from actually being typed
       const currentTags = item.tags || [];
-      if (!currentTags.includes(newTag.trim())) {
-        setItem(prev => ({ ...prev, tags: [...currentTags, newTag.trim()] }));
+      const tagToAdd = newTag.trim();
+      
+      if (!currentTags.includes(tagToAdd)) {
+        setItem(prev => ({ ...prev, tags: [...currentTags, tagToAdd] }));
       }
       setNewTag('');
     }
@@ -424,7 +427,7 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
             <div className="flex items-end justify-between">
                 <div>
                     <label htmlFor="tags" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Tags</label>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">Press Enter to add a tag.</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Press Enter or Comma to add a tag.</p>
                 </div>
                 <button
                     type="button"
