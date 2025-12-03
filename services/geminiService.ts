@@ -1,6 +1,9 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 
+// 🔑 FALLBACK KEY: Uses the secure environment variable first, but falls back to this key if needed.
+const FALLBACK_API_KEY = "AIzaSyA0DYUbuOS5L4vFaXcyZVPff6PmxH1KImg";
+
 const fileToBase64 = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -21,11 +24,11 @@ export const generateTags = async (
   description: string
 ): Promise<string[]> => {
   try {
-    // Use the provided key directly if the environment variable is missing
-    const apiKey = process.env.API_KEY || "AIzaSyAXRI1WaQ1m2JZ1g0uHSfr--rZ1955IzOk";
+    // Use the Env Secret first, or fall back to the provided key
+    const apiKey = process.env.API_KEY || FALLBACK_API_KEY;
     
     if (!apiKey) {
-        throw new Error("API Key not found.");
+        throw new Error("API Key is missing. Please check your configuration.");
     }
     const ai = new GoogleGenAI({ apiKey });
 
@@ -87,6 +90,10 @@ export const generateTags = async (
 
   } catch (error: any) {
     console.error("Error generating tags:", error);
+    // Handle specific 403 leaked key error
+    if (error.message?.includes('403') || error.message?.includes('leaked')) {
+        throw new Error("API Key Blocked: The key was flagged as leaked. Please generate a new key.");
+    }
     throw new Error(error.message || "Failed to generate tags. Check console.");
   }
 };
@@ -104,11 +111,11 @@ export interface AutoIdentifiedItem {
 
 export const identifyItem = async (imageFile: File): Promise<AutoIdentifiedItem> => {
   try {
-    // Use the provided key directly as fallback
-    const apiKey = process.env.API_KEY || "AIzaSyAXRI1WaQ1m2JZ1g0uHSfr--rZ1955IzOk";
+    // Use the Env Secret first, or fall back to the provided key
+    const apiKey = process.env.API_KEY || FALLBACK_API_KEY;
 
     if (!apiKey) {
-        throw new Error("API Key not found. Please check your configuration.");
+        throw new Error("API Key is missing. Please check your configuration.");
     }
 
     const ai = new GoogleGenAI({ apiKey });
@@ -198,7 +205,6 @@ export const identifyItem = async (imageFile: File): Promise<AutoIdentifiedItem>
     } catch (e) {
         console.error("JSON Parse Error:", e);
         // Fallback: Try to clean unescaped quotes if simple parse fails
-        // This is a naive attempt to save broken JSON
         try {
             const fixedJson = jsonString.replace(/(?<!\\)"/g, '\\"').replace(/\\"{/g, '{').replace(/}\\"/g, '}').replace(/\\":/g, '":').replace(/,\\"/g, ',"');
             data = JSON.parse(fixedJson);
@@ -226,6 +232,10 @@ export const identifyItem = async (imageFile: File): Promise<AutoIdentifiedItem>
 
   } catch (error: any) {
     console.error("Error identifying item:", error);
+    // Handle specific 403 leaked key error
+    if (error.message?.includes('403') || error.message?.includes('leaked')) {
+        throw new Error("API Key Blocked: The key was flagged as leaked. Please generate a new key.");
+    }
     throw new Error(error.message || "Identification failed. Please try again.");
   }
 };
