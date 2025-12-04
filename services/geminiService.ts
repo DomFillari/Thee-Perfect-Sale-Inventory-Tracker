@@ -1,9 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 
-// 🔑 FALLBACK KEY: Uses the secure environment variable first, but falls back to this key if needed.
-const FALLBACK_API_KEY = "AIzaSyA0DYUbuOS5L4vFaXcyZVPff6PmxH1KImg";
-
 const fileToBase64 = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -24,11 +21,10 @@ export const generateTags = async (
   description: string
 ): Promise<string[]> => {
   try {
-    // Use the Env Secret first, or fall back to the provided key
-    const apiKey = process.env.API_KEY || FALLBACK_API_KEY;
+    const apiKey = process.env.API_KEY;
     
     if (!apiKey) {
-        throw new Error("API Key is missing. Please check your configuration.");
+        throw new Error("API Key is missing. Please ensure API_KEY is set in your .env file.");
     }
     const ai = new GoogleGenAI({ apiKey });
 
@@ -111,11 +107,10 @@ export interface AutoIdentifiedItem {
 
 export const identifyItem = async (imageFile: File): Promise<AutoIdentifiedItem> => {
   try {
-    // Use the Env Secret first, or fall back to the provided key
-    const apiKey = process.env.API_KEY || FALLBACK_API_KEY;
+    const apiKey = process.env.API_KEY;
 
     if (!apiKey) {
-        throw new Error("API Key is missing. Please check your configuration.");
+        throw new Error("API Key is missing. Please ensure API_KEY is set in your .env file.");
     }
 
     const ai = new GoogleGenAI({ apiKey });
