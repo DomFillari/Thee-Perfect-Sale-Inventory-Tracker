@@ -1,28 +1,5 @@
-
-import { GoogleGenAI, Type } from "@google/genai";
-
-// Safely retrieve the environment object, handling both Node (process.env) and Browser (window.process.env)
-// We define a local 'env' constant to avoid ReferenceErrors when accessing 'process' directly in strict modules.
-const getEnv = () => {
-  if (typeof window !== 'undefined' && (window as any).process?.env) {
-    return (window as any).process.env;
-  }
-  try {
-    if (typeof process !== 'undefined' && process.env) {
-      return process.env;
-    }
-  } catch (e) {
-    // Ignore ReferenceError if process is not defined
-  }
-  return {};
-};
-
-const env = getEnv();
-
-// Helper to safely retrieve API Key
-const getApiKey = (): string | undefined => {
-  return env.API_KEY;
-};
+// Removed GoogleGenAI import - Client side no longer talks to Google directly
+// Removed getApiKey and HARDCODED_API_KEY logic
 
 const fileToBase64 = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
@@ -44,59 +21,35 @@ export const generateTags = async (
   description: string
 ): Promise<string[]> => {
   try {
-    const apiKey = getApiKey();
-    
-    if (!apiKey) {
-        throw new Error("API Key is missing. Please ensure API_KEY is set in your .env file.");
-    }
-    const ai = new GoogleGenAI({ apiKey });
-
     const imageBase64 = await fileToBase64(imageFile);
 
-    const imagePart = {
-      inlineData: {
-        mimeType: imageFile.type,
-        data: imageBase64,
-      },
-    };
-
-    const textPart = {
-      text: `Analyze the item in the image. Based on its name ("${name}"), maker ("${maker}"), category ("${category}"), and description ("${description}"), suggest 5-10 relevant tags for categorizing it for resale in an online store. Focus on keywords customers would search for.`,
-    };
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: { parts: [imagePart, textPart] },
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            tags: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.STRING,
-                description: 'A category tag for the warehouse item.'
-              }
-            }
-          },
-          required: ['tags']
-        },
-      },
+    // Call our own secure server API instead of Google directly
+    const response = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            mode: 'tags',
+            image: imageBase64,
+            context: { name, maker, category, description }
+        })
     });
 
-    const responseText = response.text?.trim();
+    if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Server failed to generate tags');
+    }
+
+    const data = await response.json();
+    const responseText = data.text?.trim();
+
     let parsed: { tags?: string[] } = {};
     if (responseText) {
       try {
         parsed = JSON.parse(responseText);
       } catch (e) {
-        console.error("Failed to parse JSON response from Gemini:", responseText, e);
-        // If parsing fails, try to extract tags from a markdown-like list
-        const fallbackTags = responseText.match(/"(.*?)"/g)?.map(t => t.replace(/"/g, '')) || [];
-        if (fallbackTags.length > 0) {
-            return fallbackTags;
-        }
+        console.error("Failed to parse JSON response from Server:", responseText, e);
+        const fallbackTags = responseText.match(/"(.*?)"/g)?.map((t: string) => t.replace(/"/g, '')) || [];
+        if (fallbackTags.length > 0) return fallbackTags;
         return [];
       }
     }
@@ -104,16 +57,11 @@ export const generateTags = async (
     if (parsed && Array.isArray(parsed.tags)) {
       return parsed.tags;
     }
-    
     return [];
 
   } catch (error: any) {
     console.error("Error generating tags:", error);
-    // Handle specific 403 leaked key error
-    if (error?.message?.includes('403') || error?.message?.includes('leaked')) {
-        throw new Error("API Key Blocked: The key was flagged as leaked. Please generate a new key.");
-    }
-    throw new Error(error?.message || "Failed to generate tags. Check console.");
+    throw new Error(error?.message || "Failed to generate tags.");
   }
 };
 
@@ -130,74 +78,26 @@ export interface AutoIdentifiedItem {
 
 export const identifyItem = async (imageFile: File): Promise<AutoIdentifiedItem> => {
   try {
-    const apiKey = getApiKey();
-
-    if (!apiKey) {
-        throw new Error("API Key is missing. Please ensure API_KEY is set in your .env file.");
-    }
-
-    const ai = new GoogleGenAI({ apiKey });
-    
     const imageBase64 = await fileToBase64(imageFile);
 
-    const imagePart = {
-      inlineData: {
-        mimeType: imageFile.type,
-        data: imageBase64,
-      },
-    };
-
-    // The Forensic Appraiser Prompt - Tuned for "Lens-like" Accuracy
-    const prompt = `
-      Act as a Forensic Resale Appraiser. Your goal is to identify this item with extreme precision, utilizing the Google Search tool.
-
-      PHASE 1: FORENSIC SCAN (Internal Thought Process)
-      1. OCR extraction: Read EVERY visible letter, number, brand name, or serial code on the object. 
-         - If text is found (e.g. "Nike", "Pyrex 404", "Patagonia"), you MUST include it in your search query.
-      2. Visual Profiling: If no text is visible, identify the EXACT visual features:
-         - Shape (e.g. "trumpet vase", "chelsea boot")
-         - Material/Texture (e.g. "hobnail glass", "suede", "cast iron")
-         - Pattern/Era (e.g. "Art Deco", "Mid-Century Modern", "Floral Chintz")
-
-      PHASE 2: TARGETED SEARCH
-      - Execute a Google Search using the extracted text or specific visual profile.
-      - Prioritize "Sold" listings on eBay, Poshmark, Mercari, or 1stDibs to find the exact used/vintage match.
-      - Look for the specific model name or pattern name.
-
-      PHASE 3: REPORT GENERATION (Strict JSON)
-      - "name": The precise title (e.g. "Vintage Fenton Hobnail Milk Glass Vase 6-inch").
-      - "maker": The brand or artist.
-      - "description": A "Google Lens" style AI Overview. Write 3-4 professional sentences describing what the item is, its likely era/origin, and key value features. Do not use conversational filler.
-      - "price": An estimated market value (number only) based on comparable sold listings.
-      - "tags": 5-8 specific keywords (e.g. "vintage", "milk glass", "fenton", "decor").
-
-      OUTPUT RULES:
-      - Return ONLY raw JSON. No markdown blocks (\`\`\`json).
-      - Escape all double quotes inside strings (e.g. "12\\" ruler").
-      - Do not include any text before or after the JSON object.
-      
-      JSON TEMPLATE:
-      {
-        "name": "String",
-        "maker": "String",
-        "description": "String",
-        "category": "String (Home Goods|Apparel|Electronics|Collectibles|Other)",
-        "condition": "String (Good|Vintage|New)",
-        "tags": ["String"],
-        "price": Number
-      }
-    `;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash', 
-      contents: { parts: [imagePart, { text: prompt }] },
-      config: {
-        tools: [{ googleSearch: {} }],
-        // responseMimeType omitted to allow tool use
-      }
+    // Call our own secure server API
+    const response = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            mode: 'identify',
+            image: imageBase64
+        })
     });
 
-    const responseText = response.text?.trim();
+    if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Server failed to identify item');
+    }
+
+    const apiResult = await response.json();
+    const responseText = apiResult.text?.trim();
+    
     if (!responseText) throw new Error("AI returned empty response.");
 
     console.log("AI Raw Response:", responseText);
@@ -211,49 +111,30 @@ export const identifyItem = async (imageFile: File): Promise<AutoIdentifiedItem>
     }
 
     let jsonString = responseText.substring(jsonStart, jsonEnd + 1);
-    
-    // Aggressive sanitization to prevent parse errors
-    jsonString = jsonString
-        .replace(/[\n\r]/g, " ") // Remove line breaks
-        .replace(/,\s*}/g, "}"); // Remove trailing commas
+    jsonString = jsonString.replace(/[\n\r]/g, " ").replace(/,\s*}/g, "}");
 
     let data: AutoIdentifiedItem;
     try {
         data = JSON.parse(jsonString) as AutoIdentifiedItem;
     } catch (e) {
         console.error("JSON Parse Error:", e);
-        // Fallback: Try to clean unescaped quotes if simple parse fails
         try {
             const fixedJson = jsonString.replace(/(?<!\\)"/g, '\\"').replace(/\\"{/g, '{').replace(/}\\"/g, '}').replace(/\\":/g, '":').replace(/,\\"/g, ',"');
             data = JSON.parse(fixedJson);
         } catch (e2) {
-             throw new Error("Failed to parse AI Overview. The item might be too obscure.");
+             throw new Error("Failed to parse AI Overview.");
         }
     }
 
-    // Extract Search Links
-    const candidates = response.candidates;
-    const chunks = candidates?.[0]?.groundingMetadata?.groundingChunks;
-
-    if (chunks) {
-        data.searchLinks = chunks
-            .map((chunk: any) => {
-                if (chunk.web) {
-                    return { title: chunk.web.title, url: chunk.web.uri };
-                }
-                return null;
-            })
-            .filter((link: any) => link !== null);
+    // Attach the search links returned by the server
+    if (apiResult.searchLinks) {
+        data.searchLinks = apiResult.searchLinks;
     }
 
     return data;
 
   } catch (error: any) {
     console.error("Error identifying item:", error);
-    // Handle specific 403 leaked key error
-    if (error?.message?.includes('403') || error?.message?.includes('leaked')) {
-        throw new Error("API Key Blocked: The key was flagged as leaked. Please generate a new key.");
-    }
-    throw new Error(error?.message || "Identification failed. Please try again.");
+    throw new Error(error?.message || "Identification failed.");
   }
 };

@@ -14,7 +14,7 @@ const Header: React.FC<HeaderProps> = ({
     userSession, 
     onLogout, 
     searchTerm, 
-    onSearchChange, 
+    onSearchChange,
 }) => {
   return (
     <header className="bg-white border-b border-gray-200 sticky top-0 z-40">
@@ -48,10 +48,10 @@ const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* User Actions */}
-        <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-full border border-gray-100">
+        <div className="flex items-center gap-2 sm:gap-4">
+            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-full border border-gray-100">
                 <UserIcon className="w-4 h-4 text-gray-600" />
-                <span className="text-xs font-medium text-gray-900 hidden sm:inline">{userSession.username}</span>
+                <span className="text-xs font-medium text-gray-900">{userSession.username}</span>
             </div>
             
             <button 
