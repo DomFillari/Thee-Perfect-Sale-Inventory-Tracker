@@ -1,3 +1,4 @@
+
 // Removed GoogleGenAI import - Client side no longer talks to Google directly
 // Removed getApiKey and HARDCODED_API_KEY logic
 
@@ -35,8 +36,16 @@ export const generateTags = async (
     });
 
     if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error || 'Server failed to generate tags');
+        // Handle non-JSON errors (like Vercel 500 pages)
+        const text = await response.text();
+        let errorMessage = `Server Error (${response.status})`;
+        try {
+            const json = JSON.parse(text);
+            if (json.error) errorMessage = json.error;
+        } catch (e) {
+            console.error("Non-JSON error response:", text);
+        }
+        throw new Error(errorMessage);
     }
 
     const data = await response.json();
@@ -91,8 +100,16 @@ export const identifyItem = async (imageFile: File): Promise<AutoIdentifiedItem>
     });
 
     if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error || 'Server failed to identify item');
+        // Handle non-JSON errors (like Vercel 500 pages)
+        const text = await response.text();
+        let errorMessage = `Server Error (${response.status})`;
+        try {
+            const json = JSON.parse(text);
+            if (json.error) errorMessage = json.error;
+        } catch (e) {
+            console.error("Non-JSON error response:", text);
+        }
+        throw new Error(errorMessage);
     }
 
     const apiResult = await response.json();
