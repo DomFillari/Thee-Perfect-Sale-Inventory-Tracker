@@ -1,6 +1,13 @@
 
 export interface UserSession {
   username: string;
+  role: 'admin';
+}
+
+export interface BidderSession {
+  phoneNumber: string;
+  name?: string;
+  role: 'bidder';
 }
 
 export interface Item {
@@ -29,6 +36,12 @@ export interface Item {
   flagged: boolean;
 
   sku: string;
+  
+  // Auction Specific Fields
+  auctionEndTime?: number; // Timestamp in ms
+  currentBid?: number;
+  bidCount?: number;
+  isWinning?: boolean; // Local state for the current user
 }
 
 export enum Status {

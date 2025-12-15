@@ -31,6 +31,17 @@ const getRandomTags = (pool: string[], count: number): string[] => {
     return shuffled.slice(0, count);
 };
 
+// Safe UUID generator that works in insecure contexts (HTTP)
+const safeUUID = () => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+};
+
 // Generates a placeholder image data URL using the Canvas API.
 // This is more reliable than fetching from an external service.
 const generatePlaceholderImage = (width: number, height: number, text: string): string => {
@@ -76,14 +87,25 @@ export const generateRandomItems = (count: number): Item[] => {
         // Generate a placeholder image for each item.
         const placeholderText = `${name.split(' ')[0]} ${i + 1}`;
         const imageDataUrl = generatePlaceholderImage(400, 400, placeholderText);
+        
+        // Mock Auction Data
+        // Set an end time between 2 minutes and 48 hours from now
+        const now = Date.now();
+        const minTime = 2 * 60 * 1000;
+        const maxTime = 48 * 60 * 60 * 1000;
+        const auctionEndTime = now + Math.floor(Math.random() * (maxTime - minTime) + minTime);
+        
+        // Start current bid slightly below price, or at price
+        const currentBid = Math.floor(price * (0.5 + Math.random() * 0.5));
+        const bidCount = Math.floor(Math.random() * 15);
 
         const item: Omit<Item, 'airtableId'> = {
-            id: crypto.randomUUID(),
+            id: safeUUID(),
             sku: `WHS-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
             name: `${name} #${i + 1}`,
             maker: maker,
             description: getRandom(DESCRIPTIONS),
-            price: price,
+            price: price, // This acts as "Reserve" or "Buy Now" in this context
             category: category,
             tags: getRandomTags(TAG_POOL, Math.floor(Math.random() * 4) + 3), // 3-6 tags
             images: [imageDataUrl],
@@ -96,6 +118,12 @@ export const generateRandomItems = (count: number): Item[] => {
             size: getRandom(SIZES),
             listed: Math.random() > 0.3,
             flagged: Math.random() > 0.9,
+            
+            // Auction Fields
+            auctionEndTime: auctionEndTime,
+            currentBid: currentBid,
+            bidCount: bidCount,
+            isWinning: false
         };
         items.push(item);
     }

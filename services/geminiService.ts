@@ -1,6 +1,29 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 
+// Safely retrieve the environment object, handling both Node (process.env) and Browser (window.process.env)
+// We define a local 'env' constant to avoid ReferenceErrors when accessing 'process' directly in strict modules.
+const getEnv = () => {
+  if (typeof window !== 'undefined' && (window as any).process?.env) {
+    return (window as any).process.env;
+  }
+  try {
+    if (typeof process !== 'undefined' && process.env) {
+      return process.env;
+    }
+  } catch (e) {
+    // Ignore ReferenceError if process is not defined
+  }
+  return {};
+};
+
+const env = getEnv();
+
+// Helper to safely retrieve API Key
+const getApiKey = (): string | undefined => {
+  return env.API_KEY;
+};
+
 const fileToBase64 = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -21,7 +44,7 @@ export const generateTags = async (
   description: string
 ): Promise<string[]> => {
   try {
-    const apiKey = process.env.API_KEY;
+    const apiKey = getApiKey();
     
     if (!apiKey) {
         throw new Error("API Key is missing. Please ensure API_KEY is set in your .env file.");
@@ -87,10 +110,10 @@ export const generateTags = async (
   } catch (error: any) {
     console.error("Error generating tags:", error);
     // Handle specific 403 leaked key error
-    if (error.message?.includes('403') || error.message?.includes('leaked')) {
+    if (error?.message?.includes('403') || error?.message?.includes('leaked')) {
         throw new Error("API Key Blocked: The key was flagged as leaked. Please generate a new key.");
     }
-    throw new Error(error.message || "Failed to generate tags. Check console.");
+    throw new Error(error?.message || "Failed to generate tags. Check console.");
   }
 };
 
@@ -107,7 +130,7 @@ export interface AutoIdentifiedItem {
 
 export const identifyItem = async (imageFile: File): Promise<AutoIdentifiedItem> => {
   try {
-    const apiKey = process.env.API_KEY;
+    const apiKey = getApiKey();
 
     if (!apiKey) {
         throw new Error("API Key is missing. Please ensure API_KEY is set in your .env file.");
@@ -228,9 +251,9 @@ export const identifyItem = async (imageFile: File): Promise<AutoIdentifiedItem>
   } catch (error: any) {
     console.error("Error identifying item:", error);
     // Handle specific 403 leaked key error
-    if (error.message?.includes('403') || error.message?.includes('leaked')) {
+    if (error?.message?.includes('403') || error?.message?.includes('leaked')) {
         throw new Error("API Key Blocked: The key was flagged as leaked. Please generate a new key.");
     }
-    throw new Error(error.message || "Identification failed. Please try again.");
+    throw new Error(error?.message || "Identification failed. Please try again.");
   }
 };

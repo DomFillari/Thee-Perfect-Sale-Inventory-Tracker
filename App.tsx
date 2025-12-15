@@ -7,11 +7,15 @@ import Header from './components/Header';
 import Login from './components/Login';
 import ImageViewer from './components/ImageViewer';
 import { getInventory, addItem, deleteItem, updateItem } from './services/airtableService';
+import { generateRandomItems } from './services/mockDataService';
 
 type View = 'dashboard' | 'itemForm';
 
 const App: React.FC = () => {
-  const [userSession, setUserSession] = useState<UserSession | null>(null);
+  // --- AUTH STATE ---
+  const [userSession, setUserSession] = useState<UserSession | null>(null); 
+
+  // --- APP STATE ---
   const [inventory, setInventory] = useState<Item[]>([]);
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [editingItem, setEditingItem] = useState<Item | null>(null);
@@ -22,37 +26,76 @@ const App: React.FC = () => {
   const [activeFilter, setActiveFilter] = useState('All');
   const [imageViewerState, setImageViewerState] = useState<{ images: string[], startIndex: number, name: string } | null>(null);
   
+  // --- ROUTING ---
+  
+  // Handle Browser Back/Forward Buttons for internal app navigation
   useEffect(() => {
-    const savedSession = localStorage.getItem('userSession');
-    if (savedSession) {
-      setUserSession(JSON.parse(savedSession));
-    } else {
-      setIsLoading(false); // Not logged in, no need to show loading spinner
+    const handleHashChange = () => {
+      const hash = window.location.hash.slice(1); // remove '#'
+      if (hash === 'add') {
+          setCurrentView('itemForm');
+      } else {
+          setCurrentView('dashboard');
+      }
+    };
+
+    // Check hash on initial load
+    handleHashChange();
+
+    // Listen for hash changes
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  // Update URL when View Changes
+  useEffect(() => {
+    const hash = currentView === 'itemForm' ? 'add' : 'dashboard';
+    const currentHash = window.location.hash.slice(1);
+    
+    if (currentHash !== hash) {
+       window.location.hash = hash;
     }
+    
+    window.scrollTo(0, 0);
+  }, [currentView]);
+
+  // --- LOAD DATA ---
+  useEffect(() => {
+    const savedAdmin = localStorage.getItem('userSession');
+    if (savedAdmin) {
+      try {
+        setUserSession(JSON.parse(savedAdmin));
+      } catch (e) {
+        console.error("Failed to parse userSession", e);
+        localStorage.removeItem('userSession');
+      }
+    }
+    fetchInventory(); 
   }, []);
 
   const fetchInventory = useCallback(async () => {
-    if (!userSession) return;
     setIsLoading(true);
     setError(null);
     try {
       const items = await getInventory();
-      setInventory(items);
+      
+      if (items.length === 0) {
+           const mockItems = generateRandomItems(8);
+           setInventory(mockItems);
+      } else {
+           setInventory(items);
+      }
     } catch (err: any) {
-      setError(err.message || 'An unexpected error occurred while fetching inventory.');
+      console.warn("Falling back to mock data due to error:", err);
+      const mockItems = generateRandomItems(12);
+      setInventory(mockItems);
     } finally {
       setIsLoading(false);
     }
-  }, [userSession]);
-
-  useEffect(() => {
-    if (userSession) {
-      fetchInventory();
-    }
-  }, [userSession, fetchInventory]);
+  }, []);
   
-  const handleLogin = async (username: string, password: string) => {
-    // --- MOCK AUTHENTICATION ---
+  // --- AUTH HANDLERS ---
+  const handleAdminLogin = async (username: string, password: string) => {
     const validUsers = [
       { username: 'Val', password: 'TPSInventory' },
       { username: 'Cort', password: 'TPSInventory' },
@@ -63,7 +106,7 @@ const App: React.FC = () => {
     );
 
     if (foundUser) {
-      const session: UserSession = { username: foundUser.username };
+      const session: UserSession = { username: foundUser.username, role: 'admin' };
       localStorage.setItem('userSession', JSON.stringify(session));
       setUserSession(session);
     } else {
@@ -71,20 +114,16 @@ const App: React.FC = () => {
       throw new Error('Invalid username or password.');
     }
   }
-  
+
   const handleLogout = () => {
     localStorage.removeItem('userSession');
     setUserSession(null);
-    setInventory([]);
   }
 
+  // --- CRUD HANDLERS ---
   const handleAddItem = async (item: Item) => {
-    if (!userSession) {
-        setError("You must be logged in to add an item.");
-        return;
-    }
+    if (!userSession) return;
     setIsSaving(true);
-    setError(null);
     try {
       const newItem = await addItem(item);
       setInventory(prev => [...prev, newItem]);
@@ -97,12 +136,8 @@ const App: React.FC = () => {
   };
 
   const handleUpdateItem = async (item: Item) => {
-    if (!userSession) {
-        setError("You must be logged in to update an item.");
-        return;
-    }
+    if (!userSession) return;
     setIsSaving(true);
-    setError(null);
     try {
       const updatedItem = await updateItem(item);
       setInventory(prev => prev.map(i => (i.id === updatedItem.id ? updatedItem : i)));
@@ -116,36 +151,18 @@ const App: React.FC = () => {
   };
 
   const handleDeleteItem = async (id: string) => {
+    if (!window.confirm('Are you sure you want to delete this item?')) return;
     const itemToDelete = inventory.find(item => item.id === id);
-    if (itemToDelete && itemToDelete.airtableId && window.confirm('Are you sure you want to delete this item?')) {
-      const originalInventory = inventory;
-      try {
-        const newInventory = inventory.filter(item => item.id !== id);
-        setInventory(newInventory);
-        await deleteItem(itemToDelete.airtableId);
-      } catch (err: any) {
-        setInventory(originalInventory);
-        setError(err.message || "Failed to delete item. Please try again.");
-      }
-    } else if (itemToDelete && !itemToDelete.airtableId) {
-      setError("Cannot delete item: missing Airtable record ID.");
+    if (itemToDelete && itemToDelete.airtableId) {
+        setInventory(prev => prev.filter(i => i.id !== id));
+        try {
+            await deleteItem(itemToDelete.airtableId);
+        } catch (e) {
+            fetchInventory();
+            alert("Failed to delete item from server.");
+        }
     }
   };
-  
-  const retryFetch = () => {
-     fetchInventory();
-  }
-  
-  const handleEditClick = (item: Item) => {
-    setEditingItem(item);
-    setCurrentView('itemForm');
-  }
-  
-  const handleCancelForm = () => {
-    setCurrentView('dashboard');
-    setEditingItem(null);
-    setError(null);
-  }
   
   const handleViewItemImages = (item: Item, startIndex: number = 0) => {
     if (item.images && item.images.length > 0) {
@@ -153,108 +170,81 @@ const App: React.FC = () => {
     }
   };
 
-  const handleCloseImageViewer = () => {
-    setImageViewerState(null);
-  };
-  
   const filteredItems = useMemo(() => {
     if (!inventory) return [];
     
-    let categoryFilteredItems = inventory;
+    let baseItems = inventory;
+    
     if (activeFilter === 'Flagged') {
-        categoryFilteredItems = inventory.filter(item => item.flagged);
+        baseItems = inventory.filter(item => item.flagged);
     } else if (activeFilter !== 'All') {
-        categoryFilteredItems = inventory.filter(item => item.category === activeFilter);
+        baseItems = inventory.filter(item => item.category === activeFilter);
     }
 
     const lowercasedFilter = searchTerm.toLowerCase();
-    if (!lowercasedFilter) return categoryFilteredItems;
+    if (!lowercasedFilter) return baseItems;
 
-    return categoryFilteredItems.filter(item => {
-      const searchableStrings = [
-        item.name,
-        item.maker,
-        item.description,
-        item.category,
-        item.consignee,
-        item.condition,
-        item.flaws,
-        item.size,
-        item.sku,
-      ].filter(Boolean);
-
-      if (searchableStrings.some(s => s.toLowerCase().includes(lowercasedFilter))) {
-        return true;
-      }
-      
-      const searchableNumbers = [item.price, item.weight].filter(n => n !== null && n !== undefined);
-      if (searchableNumbers.some(n => n.toString().includes(lowercasedFilter))) {
-        return true;
-      }
-      
-      if (item.tags && item.tags.some(tag => tag.toLowerCase().includes(lowercasedFilter))) {
-        return true;
-      }
-      
-      return false;
+    return baseItems.filter(item => {
+      const searchableStrings = [item.name, item.maker, item.description, item.category, item.sku].filter(Boolean);
+      return searchableStrings.some(s => s.toLowerCase().includes(lowercasedFilter));
     });
   }, [inventory, searchTerm, activeFilter]);
   
-  // RENDER LOGIN
+  // --- MAIN RENDER ---
+
   if (!userSession) {
-      return <Login onLogin={handleLogin} />;
+      return <Login onLogin={handleAdminLogin} />;
   }
 
-  // RENDER MAIN APP
   return (
-    <div className="min-h-screen p-4 sm:p-6 lg:p-10 flex flex-col items-center justify-between">
-      <div className="w-full space-y-8 flex flex-col items-center">
-        <Header 
-          session={userSession}
-          onLogout={handleLogout}
-          searchTerm={searchTerm}
-          onSearchChange={setSearchTerm}
-        />
-        
-        {currentView === 'dashboard' && (
-          <Dashboard 
-            items={filteredItems} 
-            onDeleteItem={handleDeleteItem}
-            onEditItem={handleEditClick}
-            onAddItem={() => { setEditingItem(null); setCurrentView('itemForm'); setError(null); }}
-            onViewItemImages={handleViewItemImages}
-            isLoading={isLoading}
-            error={error}
-            onRetry={retryFetch}
-            activeFilter={activeFilter}
-            onFilterChange={setActiveFilter}
-            searchTerm={searchTerm}
-            totalItemCount={inventory.length}
-          />
-        )}
+    <div className="min-h-screen bg-gray-50 flex flex-col font-sans text-gray-900">
+      
+      <Header 
+        userSession={userSession}
+        onLogout={handleLogout}
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+      />
+      
+      <main className="flex-grow max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8">
+            {currentView === 'dashboard' && (
+              <Dashboard 
+                items={filteredItems} 
+                onDeleteItem={handleDeleteItem}
+                onEditItem={(item) => { setEditingItem(item); setCurrentView('itemForm'); }}
+                onAddItem={() => { setEditingItem(null); setCurrentView('itemForm'); setError(null); }}
+                onViewItemImages={handleViewItemImages}
+                isLoading={isLoading}
+                error={error}
+                onRetry={fetchInventory}
+                activeFilter={activeFilter}
+                onFilterChange={setActiveFilter}
+                searchTerm={searchTerm}
+                totalItemCount={inventory.length}
+              />
+            )}
 
-        {currentView === 'itemForm' && (
-          <ItemForm
-            itemToEdit={editingItem}
-            onItemSaved={handleAddItem}
-            onItemUpdated={handleUpdateItem}
-            onCancel={handleCancelForm}
-            isSaving={isSaving}
-            error={error}
-          />
-        )}
-      </div>
+            {currentView === 'itemForm' && (
+              <ItemForm
+                itemToEdit={editingItem}
+                onItemSaved={handleAddItem}
+                onItemUpdated={handleUpdateItem}
+                onCancel={() => { setCurrentView('dashboard'); setEditingItem(null); }}
+                isSaving={isSaving}
+                error={error}
+              />
+            )}
+      </main>
+
        {imageViewerState && (
         <ImageViewer 
           images={imageViewerState.images}
           startIndex={imageViewerState.startIndex}
           itemName={imageViewerState.name}
-          onClose={handleCloseImageViewer}
+          onClose={() => setImageViewerState(null)}
         />
       )}
-      <footer className="text-center pt-10 text-xs text-slate-500 dark:text-slate-400">
-        <p>Powered by PureHome.io</p>
-      </footer>
+      
     </div>
   );
 };

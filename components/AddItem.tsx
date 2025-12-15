@@ -36,6 +36,17 @@ const emptyItem: Omit<Item, 'id' | 'sku' | 'airtableId'> = {
   flagged: false,
 };
 
+// Safe UUID generator
+const safeUUID = () => {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      return crypto.randomUUID();
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+};
+
 const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpdated, onCancel, isSaving, error }) => {
   const [item, setItem] = useState<Partial<Item>>(itemToEdit || emptyItem);
   const [localImageFile, setLocalImageFile] = useState<File | null>(null);
@@ -74,25 +85,17 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
   const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.files && e.target.files[0]) {
           const file = e.target.files[0];
-          
-          // 1. Store local file immediately for AI use (Bypasses network errors)
           setLocalImageFile(file);
           setImageError(null);
           setSearchLinks(undefined);
-
-          // 2. Create local preview URL immediately (UI feels instant)
           const objectUrl = URL.createObjectURL(file);
           setItem(prev => ({ ...prev, images: [objectUrl] }));
-          
-          // 3. Attempt Upload in Background
           setIsUploading(true);
           try {
               const imageUrl = await uploadImage(file);
-              // Only update with remote URL if upload succeeds
               setItem(prev => ({ ...prev, images: [imageUrl] }));
           } catch (err: any) {
               console.error("Image upload error:", err);
-              // We do NOT clear the image. We let them proceed with the local preview.
               setImageError("Hosting upload failed. You can still scan and save, but the image link may not persist.");
           } finally {
               setIsUploading(false);
@@ -122,12 +125,10 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
   };
   
   const handleAddTag = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    // Allow 'Enter' or ',' (comma) to add a tag
     if ((e.key === 'Enter' || e.key === ',') && newTag.trim() !== '') {
-      e.preventDefault(); // Prevent the comma from actually being typed
+      e.preventDefault(); 
       const currentTags = item.tags || [];
       const tagToAdd = newTag.trim();
-      
       if (!currentTags.includes(tagToAdd)) {
         setItem(prev => ({ ...prev, tags: [...currentTags, tagToAdd] }));
       }
@@ -148,17 +149,14 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
     setTagError('');
     try {
       const { name = '', maker = '', category = '', description = '' } = item;
-      
       let imageToAnalyze: File;
       if (localImageFile) {
           imageToAnalyze = localImageFile;
       } else {
-          // Fallback for existing items
           const response = await fetch(item.images![0]);
           const blob = await response.blob();
           imageToAnalyze = new File([blob], 'item-image.jpg', { type: blob.type });
       }
-      
       const newTags = await generateTags(imageToAnalyze, name, maker, category, description);
       const currentTags = item.tags || [];
       const mergedTags = Array.from(new Set([...currentTags, ...newTags]));
@@ -171,25 +169,18 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
   }, [item, localImageFile]);
 
   const handleIdentifyItem = useCallback(async () => {
-    // We can identify if we have a local file OR a remote URL
     if (!localImageFile && (!item.images || !item.images.length)) {
         setTagError("Please upload an image first.");
         return;
     }
-    
     setIsIdentifying(true);
     setTagError('');
     setSearchLinks(undefined);
-    
     try {
         let imageToAnalyze: File;
-
         if (localImageFile) {
-            // BEST PATH: Use local file. Fast, no CORS issues.
             imageToAnalyze = localImageFile;
         } else {
-            // EDIT PATH: Fetch remote image to analyze
-            // This might fail if the hosting provider blocks CORS, but necessary for existing items.
             try {
                 const response = await fetch(item.images![0]);
                 if (!response.ok) throw new Error("Failed to download existing image for analysis.");
@@ -199,9 +190,7 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
                 throw new Error("Could not access image for analysis. Try re-uploading the photo.");
             }
         }
-        
         const data = await identifyItem(imageToAnalyze);
-        
         setItem(prev => ({
             ...prev,
             name: data.name,
@@ -216,7 +205,6 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
         if (data.searchLinks && data.searchLinks.length > 0) {
             setSearchLinks(data.searchLinks);
         }
-        
     } catch (err: any) {
         setTagError(err.message || 'Failed to get AI Overview.');
     } finally {
@@ -230,11 +218,10 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
     const finalItem: Item = {
       ...emptyItem,
       ...item,
-      id: item.id || crypto.randomUUID(),
+      id: item.id || safeUUID(),
       sku: item.sku || `WHS-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
       images: item.images || [],
     };
-
     if (itemToEdit) {
       onItemUpdated(finalItem);
     } else {
@@ -244,294 +231,180 @@ const ItemForm: React.FC<ItemFormProps> = ({ itemToEdit, onItemSaved, onItemUpda
   
   const canSubmit = item.name && item.images && item.images.length > 0;
   
-  const inputStyle = "block w-full rounded-lg border-slate-300 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/50 dark:bg-slate-700 dark:border-slate-600 dark:placeholder-slate-400 dark:text-white sm:text-sm transition";
-  const checkboxStyle = "h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-600 dark:bg-slate-700 dark:border-slate-600 dark:checked:bg-blue-500";
+  // New Clean Style Classes
+  const inputStyle = "block w-full rounded border-gray-300 shadow-sm focus:border-black focus:ring-1 focus:ring-black sm:text-sm transition-colors py-2.5";
+  const checkboxStyle = "h-4 w-4 rounded border-gray-300 text-black focus:ring-black";
   
   return (
     <div className="w-full max-w-4xl mx-auto">
-      <form onSubmit={handleSubmit} className="bg-white dark:bg-slate-800 p-6 sm:p-8 rounded-2xl shadow-xl space-y-8">
+      <form onSubmit={handleSubmit} className="bg-white p-6 sm:p-10 rounded-xl border border-gray-200 shadow-sm space-y-8">
         
-        <div className="flex justify-between items-center">
-          <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white">
-            {itemToEdit ? 'Edit Item' : 'Add New Item'}
+        <div className="flex justify-between items-center pb-6 border-b border-gray-100">
+          <h2 className="text-2xl font-serif text-gray-900">
+            {itemToEdit ? 'Edit Item Details' : 'Add New Inventory'}
           </h2>
-          <button type="button" onClick={onCancel} aria-label="Close form" className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700">
-            <CloseIcon className="w-6 h-6 text-slate-500" />
+          <button type="button" onClick={onCancel} aria-label="Close form" className="p-2 rounded-full hover:bg-gray-100">
+            <CloseIcon className="w-6 h-6 text-gray-400" />
           </button>
         </div>
 
         {error && (
-            <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md" role="alert">
-                <p className="font-bold">Error saving item</p>
+            <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-md text-sm">
                 <p>{error}</p>
             </div>
         )}
 
         {/* Image Uploader */}
         <div className="space-y-4">
-          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Primary Image</label>
+          <label className="block text-xs font-bold uppercase tracking-wider text-gray-500">Primary Image</label>
           {imageError && (
-            <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-lg relative text-sm flex items-start gap-2" role="alert">
-                <InfoIcon className="w-5 h-5 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-bold">Upload Warning</p>
-                  <p>{imageError}</p>
-                </div>
+            <div className="bg-yellow-50 text-yellow-800 px-4 py-3 rounded text-xs">
+                {imageError}
             </div>
           )}
           
-          <div className="flex flex-col sm:flex-row gap-4 items-start">
+          <div className="flex flex-col sm:flex-row gap-6 items-start">
             <div className="w-full sm:w-1/3">
                 {isUploading ? (
-                   <div className="relative group aspect-square">
-                        {/* Show local preview while uploading */}
-                        <img src={item.images?.[0]} alt="Uploading preview" className="w-full h-full object-cover rounded-lg shadow-md opacity-50" />
-                        <div className="absolute inset-0 flex flex-col items-center justify-center">
-                            <SpinnerIcon className="w-8 h-8 text-blue-600" />
-                            <span className="text-xs mt-2 font-semibold text-blue-800 bg-white/80 px-2 py-1 rounded">Uploading...</span>
-                        </div>
+                   <div className="relative aspect-square bg-gray-100 rounded flex flex-col items-center justify-center">
+                        <SpinnerIcon className="w-6 h-6 text-gray-400" />
+                        <span className="text-xs mt-2 text-gray-400">Uploading...</span>
                     </div>
                 ) : item.images && item.images.length > 0 ? (
                     <div className="relative group aspect-square">
-                        <img src={item.images[0]} alt="Item preview" className="w-full h-full object-cover rounded-lg shadow-md" />
-                        <button
-                        type="button"
-                        onClick={handleRemoveImage}
-                        className="absolute -top-2 -right-2 bg-red-600 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                        aria-label="Remove image"
-                        >
-                        <TrashIcon className="w-4 h-4" />
+                        <img src={item.images[0]} alt="Preview" className="w-full h-full object-cover rounded shadow-sm" />
+                        <button type="button" onClick={handleRemoveImage} className="absolute -top-2 -right-2 bg-black text-white p-1 rounded-full shadow-lg">
+                            <TrashIcon className="w-4 h-4" />
                         </button>
                     </div>
                 ) : (
-                    <button
-                        type="button"
-                        onClick={triggerFileInput}
-                        className="flex flex-col items-center justify-center aspect-square w-full border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg text-slate-500 dark:text-slate-400 hover:border-blue-500 hover:text-blue-600 dark:hover:text-blue-500 transition-colors"
-                    >
-                        <CameraIcon className="w-8 h-8" />
-                        <span className="text-xs mt-1">Add Image</span>
+                    <button type="button" onClick={triggerFileInput} className="flex flex-col items-center justify-center aspect-square w-full border border-dashed border-gray-300 rounded hover:bg-gray-50 transition-colors">
+                        <CameraIcon className="w-8 h-8 text-gray-300" />
+                        <span className="text-xs mt-2 text-gray-500 font-medium">Click to Upload</span>
                     </button>
                 )}
             </div>
             
-            {/* AI Identify Button */}
-            <div className="flex-1 pt-2">
-                 {(item.images?.length > 0 || localImageFile) && (
-                    <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl border border-blue-100 dark:border-blue-800 space-y-3">
-                        <div>
-                            <h4 className="font-semibold text-blue-900 dark:text-blue-200 text-sm mb-1">Search & Identify</h4>
-                            <p className="text-xs text-blue-700 dark:text-blue-300">
-                                Scans the image for visual fingerprints (shape, pattern, style) to perform a Reverse Image Search simulation.
-                            </p>
-                        </div>
-                        
-                        <div className="grid grid-cols-1 gap-2">
-                            <button
-                                type="button"
-                                onClick={handleIdentifyItem}
-                                disabled={isIdentifying}
-                                className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-medium py-3 px-4 rounded-lg shadow-sm transition-all text-sm disabled:opacity-70 disabled:cursor-not-allowed"
-                            >
-                                {isIdentifying ? <SpinnerIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
-                                {isIdentifying ? 'Scanning Fingerprint...' : '✨ Visual Fingerprint Scan'}
-                            </button>
-                        </div>
+            <div className="flex-1 space-y-3">
+                 <div className="bg-gray-50 p-6 rounded border border-gray-100">
+                    <h4 className="font-serif text-lg text-gray-900 mb-2">AI Analysis</h4>
+                    <p className="text-sm text-gray-500 mb-4">
+                        Use our visual fingerprint technology to auto-fill details from your photo.
+                    </p>
+                    <button
+                        type="button"
+                        onClick={handleIdentifyItem}
+                        disabled={isIdentifying || (!item.images?.length && !localImageFile)}
+                        className="w-full flex items-center justify-center gap-2 bg-black text-white text-xs font-bold uppercase tracking-wider py-3 rounded hover:bg-gray-800 disabled:opacity-50 transition-colors"
+                    >
+                        {isIdentifying ? <SpinnerIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
+                        {isIdentifying ? 'Scanning...' : 'Scan & Identify'}
+                    </button>
+                 </div>
+                 
+                {searchLinks && searchLinks.length > 0 && (
+                    <div className="text-xs space-y-1 pt-2">
+                        <span className="font-bold text-gray-400 uppercase">Sources Found:</span>
+                        {searchLinks.map((link, idx) => (
+                            <a key={idx} href={link.url} target="_blank" rel="noopener noreferrer" className="block text-blue-600 hover:underline truncate">
+                                {link.title}
+                            </a>
+                        ))}
                     </div>
-                 )}
+                )}
             </div>
           </div>
-          
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleImageChange}
-            accept="image/*"
-            className="hidden"
-            capture="environment"
-          />
+          <input type="file" ref={fileInputRef} onChange={handleImageChange} accept="image/*" className="hidden" />
         </div>
 
-        {/* Google Search Results / Sources */}
-        {searchLinks && searchLinks.length > 0 && (
-            <div className="bg-slate-50 dark:bg-slate-700/50 p-4 rounded-lg border border-slate-200 dark:border-slate-600">
-                <h4 className="text-sm font-semibold text-slate-900 dark:text-white mb-2 flex items-center gap-2">
-                    <InfoIcon className="w-4 h-4 text-blue-500" />
-                    Sources & Visual Matches:
-                </h4>
-                <ul className="space-y-1">
-                    {searchLinks.map((link, idx) => (
-                        <li key={idx} className="text-xs truncate">
-                            <a 
-                                href={link.url} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
-                            >
-                                <span>🔗</span> {link.title || link.url}
-                            </a>
-                        </li>
-                    ))}
-                </ul>
-            </div>
-        )}
-
-        {/* Main Details Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-6">
-            <div>
-                <label htmlFor="name" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Item Name*</label>
-                <input type="text" name="name" id="name" value={item.name || ''} onChange={handleChange} required className={`mt-1 ${inputStyle}`} />
-            </div>
-
-            <div>
-                <label htmlFor="maker" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Maker / Brand</label>
-                <input type="text" name="maker" id="maker" value={item.maker || ''} onChange={handleChange} className={`mt-1 ${inputStyle}`} />
-            </div>
-
+        {/* Main Form Fields */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="md:col-span-2">
-                <label htmlFor="description" className="block text-sm font-medium text-slate-700 dark:text-slate-300 flex justify-between">
-                    <span>Description / AI Overview</span>
-                    {isIdentifying && <span className="text-xs text-blue-500 animate-pulse">Analyzing visual fingerprint...</span>}
-                </label>
-                <textarea 
-                    name="description" 
-                    id="description" 
-                    rows={5} 
-                    value={item.description || ''} 
-                    onChange={handleChange} 
-                    className={`mt-1 ${inputStyle}`}
-                    placeholder="AI Overview will appear here..."
-                ></textarea>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-1">Item Name</label>
+                <input type="text" name="name" value={item.name || ''} onChange={handleChange} required className={inputStyle} placeholder="e.g. Vintage Leather Armchair" />
             </div>
 
             <div>
-                <label htmlFor="price" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Estimated Price ($)</label>
-                <div className="relative mt-1">
-                    <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                        <span className="text-slate-500 sm:text-sm">$</span>
-                    </div>
-                    <input type="number" name="price" id="price" value={item.price ?? ''} onChange={handleChange} className={`pl-7 ${inputStyle}`} placeholder="0.00" step="0.01" />
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-1">Maker / Brand</label>
+                <input type="text" name="maker" value={item.maker || ''} onChange={handleChange} className={inputStyle} />
+            </div>
+
+            <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-1">Estimated Price</label>
+                <div className="relative">
+                    <span className="absolute left-3 top-2.5 text-gray-500">$</span>
+                    <input type="number" name="price" value={item.price ?? ''} onChange={handleChange} className={`${inputStyle} pl-6`} placeholder="0.00" />
                 </div>
             </div>
 
+            <div className="md:col-span-2">
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-1">Description</label>
+                <textarea name="description" rows={4} value={item.description || ''} onChange={handleChange} className={inputStyle} placeholder="Detailed description of the item..."></textarea>
+            </div>
+
             <div>
-                <label htmlFor="category" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Category</label>
-                <select id="category" name="category" value={item.category} onChange={handleChange} className={`mt-1 ${inputStyle}`}>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-1">Category</label>
+                <select name="category" value={item.category} onChange={handleChange} className={inputStyle}>
                     {CATEGORIES.map(cat => <option key={cat}>{cat}</option>)}
+                </select>
+            </div>
+            
+            <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-1">Condition</label>
+                <select name="condition" value={item.condition} onChange={handleChange} className={inputStyle}>
+                    {CONDITIONS.map(cond => <option key={cond}>{cond}</option>)}
                 </select>
             </div>
         </div>
 
-        {/* Tags Section */}
-        <div className="space-y-4">
-            <div className="flex items-end justify-between">
-                <div>
-                    <label htmlFor="tags" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Tags</label>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">Press Enter or Comma to add a tag.</p>
-                </div>
+        {/* Tags */}
+        <div className="border-t border-gray-100 pt-6">
+            <div className="flex justify-between items-center mb-2">
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-500">Tags</label>
                 <button
                     type="button"
                     onClick={handleGenerateTags}
-                    disabled={isTagging || (!item.images?.length && !localImageFile)}
-                    className="flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-blue-100 text-blue-800 hover:bg-blue-200 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900 transition"
+                    disabled={isTagging}
+                    className="text-xs text-gray-500 hover:text-black flex items-center gap-1"
                 >
-                    {isTagging ? <SpinnerIcon className="w-5 h-5" /> : <TagIcon className="w-5 h-5" />}
-                    {isTagging ? 'Generating...' : 'Add More Tags'}
+                    {isTagging ? <SpinnerIcon className="w-3 h-3" /> : <TagIcon className="w-3 h-3" />}
+                    Auto-Generate
                 </button>
             </div>
-            {tagError && <p className="text-sm text-red-600 flex items-center gap-2"><InfoIcon className="w-4 h-4" /> {tagError}</p>}
-            <div className="flex flex-wrap gap-2 p-2 border border-slate-300 dark:border-slate-600 rounded-lg min-h-[42px]">
+            <div className="flex flex-wrap gap-2 p-2 border border-gray-200 rounded min-h-[42px] bg-gray-50">
                 {(item.tags || []).map(tag => (
-                    <span key={tag} className="flex items-center gap-1.5 bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-slate-200 text-sm font-medium px-2 py-1 rounded-md">
+                    <span key={tag} className="flex items-center gap-1 bg-white border border-gray-200 text-gray-700 text-xs px-2 py-1 rounded-full shadow-sm">
                         {tag}
-                        <button type="button" onClick={() => handleRemoveTag(tag)} className="text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200">
-                            <CloseIcon className="w-3 h-3" />
-                        </button>
+                        <button type="button" onClick={() => handleRemoveTag(tag)} className="hover:text-red-500"><CloseIcon className="w-3 h-3" /></button>
                     </span>
                 ))}
                 <input
                     type="text"
-                    id="tags"
                     value={newTag}
                     onChange={handleTagInputChange}
                     onKeyDown={handleAddTag}
-                    className="flex-grow bg-transparent focus:outline-none dark:text-white p-1"
-                    placeholder={(item.tags || []).length === 0 ? 'Add tags...' : ''}
+                    className="flex-grow bg-transparent focus:outline-none text-sm p-1"
+                    placeholder="Type and press Enter..."
                 />
             </div>
         </div>
-        
-        {/* Additional Details Section */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-6">
-            <div>
-                <label htmlFor="condition" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Condition</label>
-                <select id="condition" name="condition" value={item.condition} onChange={handleChange} className={`mt-1 ${inputStyle}`}>
-                    {CONDITIONS.map(cond => <option key={cond}>{cond}</option>)}
-                </select>
-            </div>
-             <div>
-                <label htmlFor="size" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Size / Dimensions</label>
-                <input type="text" name="size" id="size" value={item.size || ''} onChange={handleChange} className={`mt-1 ${inputStyle}`} />
-            </div>
-             <div className="md:col-span-2">
-                <label className="flex items-center space-x-2 cursor-pointer">
-                    <input type="checkbox" name="shippable" checked={item.shippable} onChange={handleCheckboxChange} className={checkboxStyle} />
-                    <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Shippable</span>
-                </label>
-                {item.shippable && (
-                   <div className="mt-2 animate-fade-in">
-                       <label htmlFor="weight" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Weight (lbs)</label>
-                       <input type="number" name="weight" id="weight" value={item.weight ?? ''} onChange={handleChange} className={`mt-1 ${inputStyle} w-1/2`} placeholder="0.0" step="0.1" />
-                   </div>
-                )}
-            </div>
 
-            <div className="md:col-span-2 space-y-4 pt-4 border-t border-slate-200 dark:border-slate-700">
-                <div className="flex gap-4 flex-wrap">
-                    <label className="flex items-center space-x-2 cursor-pointer">
-                        <input type="checkbox" name="consigned" checked={item.consigned} onChange={handleCheckboxChange} className={checkboxStyle} />
-                        <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Consigned Item</span>
-                    </label>
-                     <label className="flex items-center space-x-2 cursor-pointer">
-                        <input type="checkbox" name="listed" checked={item.listed} onChange={handleCheckboxChange} className={checkboxStyle} />
-                        <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Listed Online</span>
-                    </label>
-                     <label className="flex items-center space-x-2 cursor-pointer">
-                        <input type="checkbox" name="flagged" checked={item.flagged} onChange={handleCheckboxChange} className={`${checkboxStyle} text-red-600 focus:ring-red-600`} />
-                        <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Flagged (Needs Attention)</span>
-                    </label>
-                </div>
-                
-                 {item.consigned && (
-                     <div className="animate-fade-in">
-                        <label htmlFor="consignee" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Consignee Name</label>
-                        <input type="text" name="consignee" id="consignee" value={item.consignee || ''} onChange={handleChange} className={`mt-1 ${inputStyle}`} />
-                    </div>
-                )}
-            </div>
-
-            <div className="md:col-span-2">
-                <label htmlFor="flaws" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Flaws / Notes</label>
-                <textarea name="flaws" id="flaws" rows={2} value={item.flaws || ''} onChange={handleChange} className={`mt-1 ${inputStyle}`}></textarea>
-            </div>
-        </div>
-
-        {/* Action Buttons */}
-        <div className="flex justify-end gap-4 pt-6">
+        {/* Footer Actions */}
+        <div className="flex justify-end gap-4 pt-6 border-t border-gray-100">
           <button
             type="button"
             onClick={onCancel}
-            className="px-6 py-2.5 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700 transition-colors"
+            className="px-6 py-3 rounded text-xs font-bold uppercase tracking-wider text-gray-500 hover:text-black transition-colors"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={!canSubmit || isSaving}
-            className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:bg-slate-400 disabled:cursor-not-allowed transition-all transform active:scale-95"
+            className="flex items-center gap-2 px-8 py-3 rounded bg-black text-white text-xs font-bold uppercase tracking-wider hover:bg-gray-800 disabled:opacity-50 transition-all"
           >
-            {isSaving && <SpinnerIcon className="w-5 h-5" />}
-            {isSaving ? 'Saving...' : itemToEdit ? 'Update Item' : 'Save Item'}
+            {isSaving && <SpinnerIcon className="w-4 h-4" />}
+            {isSaving ? 'Saving...' : 'Save Item'}
           </button>
         </div>
       </form>

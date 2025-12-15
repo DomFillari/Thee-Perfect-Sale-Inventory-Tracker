@@ -1,20 +1,48 @@
+
 <!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Warehouse Item Tagger</title>
+    <title>Inventory Manager - The Perfect Sale</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
+      // Polyfill global and process for browser environments
+      // This ensures compatibility with Node-oriented libraries
+      if (typeof window !== 'undefined') {
+        window.global = window;
+        window.process = window.process || {};
+        window.process.env = window.process.env || {};
+      }
+    </script>
+    <script>
       tailwind.config = {
+        darkMode: 'class',
         theme: {
           extend: {
             fontFamily: {
               sans: ['Inter', 'sans-serif'],
+              serif: ['Playfair Display', 'serif'],
             },
+            colors: {
+              brand: {
+                black: '#1a1a1a',
+                beige: '#E8E4DD',
+                gold: '#C5A059'
+              }
+            },
+            animation: {
+                'fade-in': 'fade-in 0.5s ease-out forwards'
+            },
+            keyframes: {
+                'fade-in': {
+                    '0%': { opacity: '0' },
+                    '100%': { opacity: '1' }
+                }
+            }
           },
         },
       }
@@ -35,11 +63,21 @@
       font-family: 'Inter', sans-serif;
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
-      transition: background-color 0.3s ease-in-out;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      font-family: 'Playfair Display', serif;
+    }
+    /* Fallback standard CSS animation if Tailwind config doesn't pick up immediately */
+    @keyframes fade-in {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+    .animate-fade-in {
+        animation: fade-in 0.5s ease-out forwards;
     }
   </style>
 </head>
-  <body class="bg-slate-100 dark:bg-slate-900">
+  <body class="bg-gray-50 text-brand-black">
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
   </body>

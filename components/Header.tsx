@@ -1,42 +1,83 @@
+
 import React from 'react';
-import { LogoutIcon, SearchIcon } from './icons';
+import { LogoutIcon, SearchIcon, UserIcon } from './icons';
 import type { UserSession } from '../types';
 
 interface HeaderProps {
-  session: UserSession;
+  userSession: UserSession;
   onLogout: () => void;
   searchTerm: string;
   onSearchChange: (term: string) => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ session, onLogout, searchTerm, onSearchChange }) => {
+const Header: React.FC<HeaderProps> = ({ 
+    userSession, 
+    onLogout, 
+    searchTerm, 
+    onSearchChange, 
+}) => {
   return (
-    <header className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm shadow-md rounded-2xl w-full sticky top-4 z-10">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16 gap-4">
-          <div className="flex-1 relative">
-            <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
-              <SearchIcon className="h-5 w-5 text-slate-400" />
-            </div>
-            <input
-              type="search"
-              placeholder="Search inventory..."
-              value={searchTerm}
-              onChange={e => onSearchChange(e.target.value)}
-              className="block w-full rounded-lg border-transparent bg-slate-100 dark:bg-slate-700 py-3 pl-11 pr-4 text-base placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/50 dark:text-white transition"
-            />
-          </div>
-          <div className="flex items-center">
-            <button
-              onClick={onLogout}
-              className="flex items-center justify-center gap-1 sm:gap-2 bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200 font-medium py-2.5 px-3 sm:px-4 rounded-lg shadow-sm hover:bg-slate-300 dark:hover:bg-slate-600 focus:outline-none focus:ring-4 focus:ring-slate-300 dark:focus:ring-slate-600 transition-all duration-300 text-sm"
-              aria-label="Logout"
-            >
-              <LogoutIcon className="w-5 h-5" />
-              <span className="hidden sm:inline">Logout</span>
-            </button>
-          </div>
+    <header className="bg-white border-b border-gray-200 sticky top-0 z-40">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+        
+        {/* Brand / Title */}
+        <div className="flex items-center gap-3">
+             <div className="bg-black text-white p-1.5 rounded">
+                <span className="font-serif font-bold text-lg leading-none">TPS</span>
+             </div>
+             <div className="flex flex-col">
+                 <h1 className="text-sm font-bold uppercase tracking-wider text-gray-900">Inventory</h1>
+                 <span className="text-[10px] text-gray-500 font-medium">Internal Manager</span>
+             </div>
         </div>
+
+        {/* Search Bar */}
+        <div className="flex-1 max-w-lg mx-auto hidden sm:block">
+            <div className="relative group">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <SearchIcon className="h-4 w-4 text-gray-400 group-focus-within:text-black transition-colors" />
+                </div>
+                <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => onSearchChange(e.target.value)}
+                    className="block w-full pl-10 pr-3 py-2 border border-gray-200 rounded-lg leading-5 bg-gray-50 placeholder-gray-500 focus:outline-none focus:bg-white focus:ring-1 focus:ring-black focus:border-black sm:text-sm transition-all"
+                    placeholder="Search items by name, maker, category or SKU..."
+                />
+            </div>
+        </div>
+
+        {/* User Actions */}
+        <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-full border border-gray-100">
+                <UserIcon className="w-4 h-4 text-gray-600" />
+                <span className="text-xs font-medium text-gray-900 hidden sm:inline">{userSession.username}</span>
+            </div>
+            
+            <button 
+                onClick={onLogout}
+                className="text-gray-400 hover:text-red-600 transition-colors p-2 rounded-full hover:bg-gray-100"
+                title="Sign Out"
+            >
+                <LogoutIcon className="w-5 h-5" />
+            </button>
+        </div>
+      </div>
+      
+      {/* Mobile Search Bar (visible only on small screens) */}
+      <div className="sm:hidden px-4 pb-3">
+         <div className="relative">
+             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <SearchIcon className="h-4 w-4 text-gray-400" />
+             </div>
+             <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => onSearchChange(e.target.value)}
+                className="block w-full pl-10 pr-3 py-2 border border-gray-200 rounded-lg leading-5 bg-gray-50 placeholder-gray-500 focus:outline-none focus:bg-white focus:border-black text-sm"
+                placeholder="Search..."
+             />
+         </div>
       </div>
     </header>
   );
