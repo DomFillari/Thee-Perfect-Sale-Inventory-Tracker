@@ -5,11 +5,11 @@ export default async function handler(request: any, response: any) {
   const apiKey = process.env.New_API_KEY || process.env.API_KEY;
 
   if (!apiKey) {
+    console.error("Server API Key missing. Checked New_API_KEY and API_KEY.");
     return response.status(500).json({ error: "Server API Key configuration missing." });
   }
 
   // 2. Parse the incoming request (Image + Mode)
-  // Note: Vercel automatically parses JSON bodies
   const { mode, image, context } = request.body;
 
   if (!image) {
@@ -25,7 +25,7 @@ export default async function handler(request: any, response: any) {
       
       const imagePart = {
         inlineData: {
-          mimeType: "image/jpeg", // Assuming JPEG from canvas/upload, but robust enough for base64
+          mimeType: "image/jpeg",
           data: image,
         },
       };
@@ -114,7 +114,7 @@ export default async function handler(request: any, response: any) {
         }
       });
 
-      // Extract search links from server-side result to pass back to client
+      // Extract search links
       const chunks = result.candidates?.[0]?.groundingMetadata?.groundingChunks;
       const searchLinks = chunks
             ?.map((chunk: any) => {
@@ -134,7 +134,7 @@ export default async function handler(request: any, response: any) {
     return response.status(400).json({ error: "Invalid mode specified." });
 
   } catch (error: any) {
-    console.error("API Error:", error);
+    console.error("API Error encountered:", error);
     return response.status(500).json({ error: error.message || "Internal Server Error" });
   }
 }

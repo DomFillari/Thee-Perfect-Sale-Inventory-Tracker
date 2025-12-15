@@ -2,17 +2,49 @@
 // Removed GoogleGenAI import - Client side no longer talks to Google directly
 // Removed getApiKey and HARDCODED_API_KEY logic
 
-const fileToBase64 = (file: File): Promise<string> =>
-  new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = () => {
-      const result = reader.result as string;
-      // Remove the data URL prefix e.g. "data:image/jpeg;base64,"
-      resolve(result.split(',')[1]);
-    };
-    reader.onerror = (error) => reject(error);
-  });
+// Helper to resize and compress image before sending to API
+// Vercel Serverless Functions have a payload limit of 4.5MB
+const compressImage = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+            const img = new Image();
+            img.src = event.target?.result as string;
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const MAX_WIDTH = 1024;
+                const MAX_HEIGHT = 1024;
+                let width = img.width;
+                let height = img.height;
+
+                if (width > height) {
+                    if (width > MAX_WIDTH) {
+                        height *= MAX_WIDTH / width;
+                        width = MAX_WIDTH;
+                    }
+                } else {
+                    if (height > MAX_HEIGHT) {
+                        width *= MAX_HEIGHT / height;
+                        height = MAX_HEIGHT;
+                    }
+                }
+
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx?.drawImage(img, 0, 0, width, height);
+
+                // Compress to JPEG at 0.7 quality
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+                // Return just the base64 part
+                resolve(dataUrl.split(',')[1]);
+            };
+            img.onerror = (error) => reject(error);
+        };
+        reader.onerror = (error) => reject(error);
+    });
+};
 
 export const generateTags = async (
   imageFile: File,
@@ -22,7 +54,7 @@ export const generateTags = async (
   description: string
 ): Promise<string[]> => {
   try {
-    const imageBase64 = await fileToBase64(imageFile);
+    const imageBase64 = await compressImage(imageFile);
 
     // Call our own secure server API instead of Google directly
     const response = await fetch('/api/analyze', {
@@ -36,7 +68,6 @@ export const generateTags = async (
     });
 
     if (!response.ok) {
-        // Handle non-JSON errors (like Vercel 500 pages)
         const text = await response.text();
         let errorMessage = `Server Error (${response.status})`;
         try {
@@ -87,7 +118,7 @@ export interface AutoIdentifiedItem {
 
 export const identifyItem = async (imageFile: File): Promise<AutoIdentifiedItem> => {
   try {
-    const imageBase64 = await fileToBase64(imageFile);
+    const imageBase64 = await compressImage(imageFile);
 
     // Call our own secure server API
     const response = await fetch('/api/analyze', {
@@ -100,7 +131,6 @@ export const identifyItem = async (imageFile: File): Promise<AutoIdentifiedItem>
     });
 
     if (!response.ok) {
-        // Handle non-JSON errors (like Vercel 500 pages)
         const text = await response.text();
         let errorMessage = `Server Error (${response.status})`;
         try {
@@ -143,7 +173,6 @@ export const identifyItem = async (imageFile: File): Promise<AutoIdentifiedItem>
         }
     }
 
-    // Attach the search links returned by the server
     if (apiResult.searchLinks) {
         data.searchLinks = apiResult.searchLinks;
     }
