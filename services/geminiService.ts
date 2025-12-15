@@ -3,7 +3,7 @@
 // Removed getApiKey and HARDCODED_API_KEY logic
 
 // Helper to resize and compress image before sending to API
-// Vercel Serverless Functions have a payload limit of 4.5MB
+// Vercel Serverless Functions have a strict payload limit (often 1MB for parsed JSON bodies)
 const compressImage = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -13,8 +13,9 @@ const compressImage = (file: File): Promise<string> => {
             img.src = event.target?.result as string;
             img.onload = () => {
                 const canvas = document.createElement('canvas');
-                const MAX_WIDTH = 1024;
-                const MAX_HEIGHT = 1024;
+                // Reduced resolution to ensure < 1MB payload
+                const MAX_WIDTH = 800; 
+                const MAX_HEIGHT = 800;
                 let width = img.width;
                 let height = img.height;
 
@@ -35,8 +36,9 @@ const compressImage = (file: File): Promise<string> => {
                 const ctx = canvas.getContext('2d');
                 ctx?.drawImage(img, 0, 0, width, height);
 
-                // Compress to JPEG at 0.7 quality
-                const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+                // Aggressive compression: JPEG at 0.5 quality
+                // This usually results in 50kb - 150kb files, safe for Vercel
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.5);
                 // Return just the base64 part
                 resolve(dataUrl.split(',')[1]);
             };
@@ -119,6 +121,8 @@ export interface AutoIdentifiedItem {
 export const identifyItem = async (imageFile: File): Promise<AutoIdentifiedItem> => {
   try {
     const imageBase64 = await compressImage(imageFile);
+
+    console.log(`Sending image payload (~${Math.round(imageBase64.length / 1024)}KB) to server...`);
 
     // Call our own secure server API
     const response = await fetch('/api/analyze', {

@@ -1,5 +1,14 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
+// Configuration to increase the request body size limit if the environment supports it
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '4.5mb',
+    },
+  },
+};
+
 export default async function handler(request: any, response: any) {
   // 1. Securely retrieve the key from Vercel Environment Variables
   const apiKey = process.env.New_API_KEY || process.env.API_KEY;
@@ -10,10 +19,13 @@ export default async function handler(request: any, response: any) {
   }
 
   // 2. Parse the incoming request (Image + Mode)
-  const { mode, image, context } = request.body;
+  // Ensure request.body exists (Vercel should parse it for application/json)
+  const body = request.body || {};
+  const { mode, image, context } = body;
 
   if (!image) {
-    return response.status(400).json({ error: "No image data provided." });
+    console.error("Missing image in request body");
+    return response.status(400).json({ error: "No image data provided. Image might be too large." });
   }
 
   try {
